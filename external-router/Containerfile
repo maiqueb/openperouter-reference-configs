@@ -1,0 +1,6 @@
+FROM quay.io/frrouting/frr:10.6.0
+
+COPY hack/setup-frr-router-red-vrf.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
