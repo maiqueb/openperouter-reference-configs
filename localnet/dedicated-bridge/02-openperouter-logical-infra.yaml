@@ -1,0 +1,31 @@
+---
+apiVersion: openpe.openperouter.github.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: layer2
+  namespace: openperouter-system
+spec:
+  hostmaster:
+    ovsBridge:
+      name: ovsbr1
+    type: ovs-bridge
+  l2gatewayips:
+    - 192.170.1.1/24
+  vni: 110
+  vrf: red
+---
+apiVersion: openpe.openperouter.github.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay
+  namespace: openperouter-system
+spec:
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 10.200.11.4
+  nics:
+    - macvlan0 

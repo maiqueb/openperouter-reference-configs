@@ -1,0 +1,38 @@
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: dedicated-bonded-iface
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""  
+  desiredState:
+    interfaces:
+    - ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
+      name: ovsbr1
+      state: up
+      type: ovs-interface
+    - bridge:
+        allow-extra-patch-ports: true
+        options:
+          stp: false
+        port:
+        - name: bond1
+          link-aggregation:
+            mode: active-backup
+            port:
+            - name: ens4
+            - name: ens5
+        - name: ovsbr1
+      name: ovsbr1
+      state: up
+      type: ovs-bridge
+    ovn:
+      bridge-mappings:
+      - bridge: ovsbr1
+        localnet: datanet
+        state: present
+
+
