@@ -1,0 +1,30 @@
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: localnet-dedicated-bridge
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+    - name: ovsbr1
+      type: ovs-interface
+      state: up
+      ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
+    - name: ovsbr1
+      type: ovs-bridge
+      state: up
+      bridge:
+        allow-extra-patch-ports: true
+        options:
+          stp: false
+        port:
+        - name: ovsbr1
+    ovn:
+      bridge-mappings:
+      - bridge: ovsbr1
+        localnet: datanet
+        state: present

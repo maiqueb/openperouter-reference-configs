@@ -1,0 +1,19 @@
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: macvlan-underlay
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+    - name: macvlan0
+      type: mac-vlan
+      state: up
+      mac-vlan:
+        base-iface: ens4
+        mode: bridge
+      ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
