@@ -1,22 +1,26 @@
 ---
-apiVersion: openpe.openperouter.github.io/v1alpha1
+apiVersion: network.openperouter.io/v1alpha1
 kind: L3VNI
 metadata:
   name: red-100
+  namespace: openshift-openperouter
 spec:
   vrf: red
   vni: 100
 ---
-apiVersion: openpe.openperouter.github.io/v1alpha1
+apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: red-110
+  namespace: openshift-openperouter
 spec:
-  vrf: red
   vni: 110
-  l2gatewayips:
-    - 192.170.1.1/24
-  hostmaster:
+  hostMaster:
+    type: LinuxBridge
     linuxBridge:
       name: brvni110
-    type: linux-bridge
+  gatewayIPs: ["192.170.1.1/24"]
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: red-100

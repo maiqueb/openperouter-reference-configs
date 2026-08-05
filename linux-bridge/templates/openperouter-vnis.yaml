@@ -1,5 +1,5 @@
 ---
-apiVersion: openpe.openperouter.github.io/v1alpha1
+apiVersion: network.openperouter.io/v1alpha1
 kind: L3VNI
 metadata:
   name: ${VRF}-${L3VNI}
@@ -7,16 +7,18 @@ spec:
   vrf: $VRF
   vni: $L3VNI
 ---
-apiVersion: openpe.openperouter.github.io/v1alpha1
+apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: ${VRF}-${L2VNI}
 spec:
-  vrf: $VRF
   vni: $L2VNI
-  l2gatewayips:
-    - $L2VNI_GW_CIDR
-  hostmaster:
+  hostMaster:
+    type: LinuxBridge
     linuxBridge:
       name: $L2VNI_BRIDGE
-    type: linux-bridge
+  gatewayIPs: ["$L2VNI_GW_CIDR"]
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: ${VRF}-${L3VNI}
