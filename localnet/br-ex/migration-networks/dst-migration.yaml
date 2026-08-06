@@ -1,0 +1,10 @@
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachineInstanceMigration
+metadata:
+  name: vmim-target-test-vm-w1
+  namespace: evpn-localnet-test
+spec:
+  receive:
+    migrationID: 2f04ddb6-1497-47a0-9128-539461ff60c8
+  vmiName: test-vm-w1
