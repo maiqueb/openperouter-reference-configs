@@ -1,0 +1,23 @@
+---
+# Applying this is the actual migration trigger — nothing moves before this
+# object exists. Apply dst-workload.yaml + dst-migration.yaml on the
+# destination cluster FIRST and read the resulting synchronizationAddress
+# (bare "ip:port", not a "tls://..." URL) off its VirtualMachineInstanceMigration
+# status before filling in connectURL below.
+#
+# migrationID and connectURL must be regenerated fresh for every migration
+# attempt and must match dst-migration.yaml's migrationID exactly:
+#   - migrationID: any fresh uuidgen value
+#   - connectURL: the destination's synchronizationAddress — not guaranteed
+#     stable across the destination sync controller pod's restarts, since
+#     there's no MAC/IP pinning on that path
+apiVersion: kubevirt.io/v1
+kind: VirtualMachineInstanceMigration
+metadata:
+  name: vmim-source-test-vm-w1
+  namespace: evpn-localnet-test
+spec:
+  sendTo:
+    connectURL: "REPLACE-WITH-DESTINATION-SYNC-ADDRESS"
+    migrationID: REPLACE-WITH-FRESH-UUID
+  vmiName: test-vm-w1
