@@ -13,6 +13,7 @@
 #
 # Usage:
 #   ./cclm-demo.sh setup              Create VMs on both clusters
+#   ./cclm-demo.sh exchange-ca        Exchange kubevirt-ca certs between clusters
 #   ./cclm-demo.sh demo-connectivity   Show L2 connectivity + external client access
 #   ./cclm-demo.sh demo-migration      iperf3 sessions + migrate + analyze impact
 #   ./cclm-demo.sh cleanup             Tear down all demo resources
@@ -248,6 +249,46 @@ wait_for_vmi_phase() {
 }
 
 # ============================================================================
+# KubeVirt CA exchange
+# ============================================================================
+CNV_NS="openshift-cnv"
+
+exchange_kubevirt_ca() {
+    info "Exchanging KubeVirt CA certificates between clusters..."
+
+    local src_ca dst_ca
+    src_ca=$(src_oc "get configmap kubevirt-ca -n $CNV_NS -o json") || {
+        fail "Could not read kubevirt-ca configmap from source cluster ($CNV_NS namespace)"
+        exit 1
+    }
+
+    dst_ca=$(dst_oc "get configmap kubevirt-ca -n $CNV_NS -o json") || {
+        fail "Could not read kubevirt-ca configmap from destination cluster ($CNV_NS namespace)"
+        exit 1
+    }
+
+    info "Applying source cluster CA as kubevirt-external-ca on destination cluster..."
+    echo "$src_ca" \
+        | python3 -c "
+import json, sys
+cm = json.load(sys.stdin)
+cm['metadata'] = {'name': 'kubevirt-external-ca', 'namespace': '$CNV_NS'}
+json.dump(cm, sys.stdout)
+" | dst_oc "apply -f -"
+
+    info "Applying destination cluster CA as kubevirt-external-ca on source cluster..."
+    echo "$dst_ca" \
+        | python3 -c "
+import json, sys
+cm = json.load(sys.stdin)
+cm['metadata'] = {'name': 'kubevirt-external-ca', 'namespace': '$CNV_NS'}
+json.dump(cm, sys.stdout)
+" | src_oc "apply -f -"
+
+    success "KubeVirt CA certificates exchanged between clusters"
+}
+
+# ============================================================================
 # setup
 # ============================================================================
 do_setup() {
@@ -259,6 +300,8 @@ do_setup() {
     info "Ensuring namespace '$NS' exists..."
     src_oc "create ns $NS" 2>/dev/null || true
     dst_oc "create ns $NS" 2>/dev/null || true
+
+    exchange_kubevirt_ca
 
     info "Verifying EVPN NAD on both clusters..."
     local nad_err
@@ -703,6 +746,7 @@ do_cleanup() {
 # ============================================================================
 case "${1:-}" in
     setup)             do_setup ;;
+    exchange-ca)       detect_kubeconfig; exchange_kubevirt_ca ;;
     demo-connectivity) do_demo_connectivity ;;
     demo-migration)    do_demo_migration ;;
     cleanup)           do_cleanup ;;
@@ -713,6 +757,7 @@ case "${1:-}" in
         echo ""
         echo "Commands:"
         echo "  setup              Create VMs on both clusters, wait for readiness"
+        echo "  exchange-ca        Exchange kubevirt-ca certificates between clusters"
         echo "  demo-connectivity  Ping tests across stretched L2 + external client access"
         echo "  demo-migration     iperf3 sessions, live migrate, analyze impact"
         echo "  cleanup            Tear down all demo resources"
