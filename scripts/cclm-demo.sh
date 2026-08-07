@@ -13,6 +13,7 @@
 #
 # Usage:
 #   ./cclm-demo.sh setup              Create VMs on both clusters
+#   ./cclm-demo.sh exchange-ca        Exchange kubevirt-ca certs between clusters
 #   ./cclm-demo.sh demo-connectivity   Show L2 connectivity + external client access
 #   ./cclm-demo.sh demo-migration      iperf3 sessions + migrate + analyze impact
 #   ./cclm-demo.sh cleanup             Tear down all demo resources
@@ -745,6 +746,7 @@ do_cleanup() {
 # ============================================================================
 case "${1:-}" in
     setup)             do_setup ;;
+    exchange-ca)       detect_kubeconfig; exchange_kubevirt_ca ;;
     demo-connectivity) do_demo_connectivity ;;
     demo-migration)    do_demo_migration ;;
     cleanup)           do_cleanup ;;
@@ -755,6 +757,7 @@ case "${1:-}" in
         echo ""
         echo "Commands:"
         echo "  setup              Create VMs on both clusters, wait for readiness"
+        echo "  exchange-ca        Exchange kubevirt-ca certificates between clusters"
         echo "  demo-connectivity  Ping tests across stretched L2 + external client access"
         echo "  demo-migration     iperf3 sessions, live migrate, analyze impact"
         echo "  cleanup            Tear down all demo resources"
