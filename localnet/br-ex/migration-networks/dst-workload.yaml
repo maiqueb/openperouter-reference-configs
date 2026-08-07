@@ -1,0 +1,68 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: evpn-localnet-test
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: test-vm-w1
+  namespace: evpn-localnet-test
+  annotations:
+    kubevirt.io/restore-run-strategy: Always
+spec:
+  runStrategy: WaitAsReceiver
+  template:
+    metadata:
+      labels:
+        kubevirt.io/vm: test-vm-w1
+    spec:
+      domain:
+        cpu:
+          model: Nehalem
+        devices:
+          disks:
+            - name: containerdisk
+              disk: { bus: virtio }
+            - name: cloudinitdisk
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+            - name: evpn
+              bridge: {}
+              macAddress: "02:00:00:00:00:01"
+        resources:
+          requests:
+            memory: 1Gi
+      networks:
+        - name: default
+          pod: {}
+        - name: evpn
+          multus:
+            networkName: evpn-localnet-test/evpn
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                evpnnet:
+                  match:
+                    macaddress: "02:00:00:00:00:01"
+                  set-name: eth1
+                  addresses:
+                    - 192.170.1.10/24
+                  routes:
+                    - to: 0.0.0.0/0
+                      via: 192.170.1.1
+            userData: |
+              #cloud-config
+              password: fedora
+              chpasswd: { expire: False }
+              ssh_pwauth: True
+
