@@ -46,6 +46,15 @@ VM_GW="192.170.1.1"
 EXT_CLIENT_CONTAINER="client"
 EXT_CLIENT_HOST="$DST_HOST"
 
+SRC_TOR_ASN="${SRC_TOR_ASN:-64522}"
+SRC_OCP_ASN="${SRC_OCP_ASN:-64524}"
+DST_TOR_ASN="${DST_TOR_ASN:-64512}"
+DST_OCP_ASN="${DST_OCP_ASN:-64514}"
+L3VNI="${L3VNI:-100}"
+
+SRC_TOR_RMAC="${SRC_TOR_RMAC:-aa:bb:cc:00:00:65}"
+DST_TOR_RMAC="${DST_TOR_RMAC:-aa:bb:cc:00:00:64}"
+
 IPERF_DURATION="${IPERF_DURATION:-120}"
 
 SRC_KUBECONFIG="${SRC_KUBECONFIG:-/root/.kube/config}"
@@ -142,6 +151,42 @@ echo "ERROR: Timeout waiting for command in VM $VM" >&2; exit 1
 '
     src_ssh "cat > /tmp/cclm-vm-exec.sh && chmod +x /tmp/cclm-vm-exec.sh" <<< "$helper"
     dst_ssh "cat > /tmp/cclm-vm-exec.sh && chmod +x /tmp/cclm-vm-exec.sh" <<< "$helper"
+}
+
+# ============================================================================
+# ToR L3 routing configuration
+# ============================================================================
+configure_tor_l3_routing() {
+    info "Configuring ToR L3VNI route-target imports for cross-cluster routing..."
+
+    src_ssh "podman exec frr vtysh \
+      -c 'configure terminal' \
+      -c 'router bgp $SRC_TOR_ASN vrf red' \
+      -c 'address-family l2vpn evpn' \
+      -c 'route-target import $SRC_TOR_ASN:$L3VNI' \
+      -c 'route-target import $SRC_OCP_ASN:$L3VNI' \
+      -c 'route-target import $DST_TOR_ASN:$L3VNI' \
+      -c 'route-target import $DST_OCP_ASN:$L3VNI' \
+      -c 'end' \
+      -c 'write memory'" >/dev/null 2>&1
+    success "Source ToR: importing RTs from all ASNs ($SRC_TOR_ASN, $SRC_OCP_ASN, $DST_TOR_ASN, $DST_OCP_ASN)"
+
+    dst_ssh "podman exec frr vtysh \
+      -c 'configure terminal' \
+      -c 'router bgp $DST_TOR_ASN vrf red' \
+      -c 'address-family l2vpn evpn' \
+      -c 'route-target import $DST_TOR_ASN:$L3VNI' \
+      -c 'route-target import $DST_OCP_ASN:$L3VNI' \
+      -c 'route-target import $SRC_TOR_ASN:$L3VNI' \
+      -c 'route-target import $SRC_OCP_ASN:$L3VNI' \
+      -c 'end' \
+      -c 'write memory'" >/dev/null 2>&1
+    success "Destination ToR: importing RTs from all ASNs ($DST_TOR_ASN, $DST_OCP_ASN, $SRC_TOR_ASN, $SRC_OCP_ASN)"
+
+    info "Setting unique Router MACs on L3VNI SVI (br100)..."
+    src_ssh "podman exec frr ip link set br100 address $SRC_TOR_RMAC" 2>/dev/null
+    dst_ssh "podman exec frr ip link set br100 address $DST_TOR_RMAC" 2>/dev/null
+    success "Router MACs: src=$SRC_TOR_RMAC dst=$DST_TOR_RMAC"
 }
 
 # ============================================================================
@@ -296,6 +341,7 @@ do_setup() {
 
     detect_kubeconfig
     deploy_vm_exec_helper
+    configure_tor_l3_routing
 
     info "Ensuring namespace '$NS' exists..."
     src_oc "create ns $NS" 2>/dev/null || true
@@ -763,13 +809,17 @@ case "${1:-}" in
         echo "  cleanup            Tear down all demo resources"
         echo ""
         echo "Environment overrides:"
-        echo "  SRC_HOST           Source cluster node   (default: $SRC_HOST)"
-        echo "  DST_HOST           Dest cluster node     (default: $DST_HOST)"
-        echo "  SSH_KEY            SSH private key        (default: \$HOME/.ssh/beaker)"
-        echo "  NS                 Namespace              (default: $NS)"
-        echo "  VM_IMAGE           Container disk image   (default: $VM_IMAGE)"
-        echo "  IPERF_DURATION     iperf3 test duration   (default: $IPERF_DURATION)"
-        echo "  SRC_KUBECONFIG     Source cluster config   (default: /root/.kube/config)"
-        echo "  DST_KUBECONFIG     Dest cluster config     (default: /root/.kube/config)"
+        echo "  SRC_HOST           Source cluster node     (default: $SRC_HOST)"
+        echo "  DST_HOST           Dest cluster node       (default: $DST_HOST)"
+        echo "  SSH_KEY            SSH private key          (default: \$HOME/.ssh/beaker)"
+        echo "  NS                 Namespace                (default: $NS)"
+        echo "  VM_IMAGE           Container disk image     (default: $VM_IMAGE)"
+        echo "  IPERF_DURATION     iperf3 test duration     (default: $IPERF_DURATION)"
+        echo "  SRC_KUBECONFIG     Source cluster config     (default: /root/.kube/config)"
+        echo "  DST_KUBECONFIG     Dest cluster config       (default: /root/.kube/config)"
+        echo "  SRC_TOR_ASN        Source ToR BGP ASN        (default: $SRC_TOR_ASN)"
+        echo "  DST_TOR_ASN        Dest ToR BGP ASN          (default: $DST_TOR_ASN)"
+        echo "  SRC_OCP_ASN        Source OCP nodes ASN      (default: $SRC_OCP_ASN)"
+        echo "  DST_OCP_ASN        Dest OCP nodes ASN        (default: $DST_OCP_ASN)"
         ;;
 esac
