@@ -452,28 +452,37 @@ do_setup() {
         exit 1
     fi
 
+    info "Waiting for EVPN IPs to be reported by guest agent..."
+    local vm_a_ip="" vm_migrate_ip="" vm_b_ip=""
+    local ip_timeout=120 ip_elapsed=0
+    while (( ip_elapsed < ip_timeout )); do
+        [[ -z "$vm_a_ip" ]] && vm_a_ip=$(src_oc "get vmi $VM_A_NAME -n $NS -o jsonpath='{.status.interfaces[?(@.name==\"evpn\")].ipAddress}'" 2>/dev/null)
+        [[ -z "$vm_migrate_ip" ]] && vm_migrate_ip=$(src_oc "get vmi $VM_MIGRATE_NAME -n $NS -o jsonpath='{.status.interfaces[?(@.name==\"evpn\")].ipAddress}'" 2>/dev/null)
+        [[ -z "$vm_b_ip" ]] && vm_b_ip=$(dst_oc "get vmi $VM_B_NAME -n $NS -o jsonpath='{.status.interfaces[?(@.name==\"evpn\")].ipAddress}'" 2>/dev/null)
+        vm_a_ip="${vm_a_ip//\'/}"; vm_migrate_ip="${vm_migrate_ip//\'/}"; vm_b_ip="${vm_b_ip//\'/}"
+        if [[ -n "$vm_a_ip" && -n "$vm_migrate_ip" && -n "$vm_b_ip" ]]; then
+            break
+        fi
+        printf "."
+        sleep 1
+        (( ip_elapsed += 1 )) || true
+    done
+    echo ""
+
+    if [[ -z "$vm_a_ip" || -z "$vm_migrate_ip" || -z "$vm_b_ip" ]]; then
+        fail "Timed out waiting for EVPN IPs (a=${vm_a_ip:-n/a} migrate=${vm_migrate_ip:-n/a} b=${vm_b_ip:-n/a})"
+    else
+        success "All EVPN IPs reported"
+    fi
+
     header "VM Summary"
     printf "  ${CYAN}%-15s %-8s %-17s %-17s %s${NC}\n" "VM" "CLUSTER" "EVPN IP (eth1)" "MAC" "STATUS"
     printf "  %-15s %-8s %-17s %-17s %s\n" "───────────────" "────────" "─────────────────" "─────────────────" "──────────────"
 
-    local vm_ip vm_phase
-    for vm in "$VM_A_NAME" "$VM_MIGRATE_NAME"; do
-        vm_ip=$(src_oc "get vmi $vm -n $NS -o jsonpath='{.status.interfaces[?(@.name==\"evpn\")].ipAddress}'" 2>/dev/null)
-        vm_phase=$(src_oc "get vmi $vm -n $NS -o jsonpath='{.status.phase}'" 2>/dev/null)
-        vm_ip="${vm_ip//\'/}"; vm_phase="${vm_phase//\'/}"
-        local vm_mac="$VM_A_MAC"
-        [[ "$vm" == "$VM_MIGRATE_NAME" ]] && vm_mac="$VM_MIGRATE_MAC"
-        printf "  %-15s %-8s %-17s %-17s %s\n" "$vm" "A (src)" "${vm_ip:-n/a}" "$vm_mac" "${vm_phase:-n/a}"
-    done
-
-    vm_ip=$(dst_oc "get vmi $VM_B_NAME -n $NS -o jsonpath='{.status.interfaces[?(@.name==\"evpn\")].ipAddress}'" 2>/dev/null)
-    vm_phase=$(dst_oc "get vmi $VM_B_NAME -n $NS -o jsonpath='{.status.phase}'" 2>/dev/null)
-    vm_ip="${vm_ip//\'/}"; vm_phase="${vm_phase//\'/}"
-    printf "  %-15s %-8s %-17s %-17s %s\n" "$VM_B_NAME" "B (dst)" "${vm_ip:-n/a}" "$VM_B_MAC" "${vm_phase:-n/a}"
-
-    vm_phase=$(dst_oc "get vm $VM_MIGRATE_NAME -n $NS -o jsonpath='{.spec.runStrategy}'" 2>/dev/null)
-    vm_phase="${vm_phase//\'/}"
-    printf "  %-15s %-8s %-17s %-17s %s\n" "$VM_MIGRATE_NAME" "B (dst)" "$VM_MIGRATE_IP" "$VM_MIGRATE_MAC" "${vm_phase:-n/a}"
+    printf "  %-15s %-8s %-17s %-17s %s\n" "$VM_A_NAME" "A (src)" "${vm_a_ip:-n/a}" "$VM_A_MAC" "Running"
+    printf "  %-15s %-8s %-17s %-17s %s\n" "$VM_MIGRATE_NAME" "A (src)" "${vm_migrate_ip:-n/a}" "$VM_MIGRATE_MAC" "Running"
+    printf "  %-15s %-8s %-17s %-17s %s\n" "$VM_B_NAME" "B (dst)" "${vm_b_ip:-n/a}" "$VM_B_MAC" "Running"
+    printf "  %-15s %-8s %-17s %-17s %s\n" "$VM_MIGRATE_NAME" "B (dst)" "$VM_MIGRATE_IP" "$VM_MIGRATE_MAC" "WaitAsReceiver"
 
     echo ""
     success "Setup complete!"
@@ -701,17 +710,8 @@ EOF
     fi
     pause
 
-    # --- Step 6: EVPN route convergence ---
-    header "Step 6: EVPN Route Convergence"
-    info "Source cluster ToR ($VM_MIGRATE_MAC should be withdrawn):"
-    src_tor "show bgp l2vpn evpn route type 2" || true
-    echo ""
-    info "Destination cluster ToR ($VM_MIGRATE_MAC now local):"
-    dst_tor "show bgp l2vpn evpn route type 2" || true
-    pause
-
-    # --- Step 7: Collect and analyze results ---
-    header "Step 7: Post-Migration Analysis"
+    # --- Step 6: Collect and analyze results ---
+    header "Step 6: Post-Migration Analysis"
 
     info "Letting traffic run for 10 more seconds..."
     sleep 10
@@ -722,19 +722,6 @@ EOF
     sleep 2
 
     echo ""
-    echo -e "${CYAN}=== iperf3 Results: $VM_A_NAME -> $VM_MIGRATE_NAME ===${NC}"
-    echo -e "${CYAN}    (was intra-cluster, now cross-cluster after migration)${NC}"
-    echo ""
-    vm_exec src_ssh "$VM_A_NAME" "cat /tmp/iperf.log" || true
-    echo ""
-
-    echo -e "${CYAN}=== iperf3 Results: $VM_B_NAME -> $VM_MIGRATE_NAME ===${NC}"
-    echo -e "${CYAN}    (was cross-cluster, now intra-cluster after migration)${NC}"
-    echo ""
-    vm_exec dst_ssh "$VM_B_NAME" "cat /tmp/iperf.log" || true
-    echo ""
-
-    # --- Ping packet loss analysis ---
     echo -e "${CYAN}=== Ping Packet Loss Analysis ===${NC}"
     echo ""
     local ping_output
@@ -785,7 +772,7 @@ PYEOF
 
     # --- Post-migration connectivity check ---
     echo ""
-    header "Step 8: Post-Migration Connectivity"
+    header "Step 7: Post-Migration Connectivity"
     info "$VM_A_NAME ($VM_A_IP, cluster A) -> $VM_MIGRATE_NAME ($VM_MIGRATE_IP, now on cluster B):"
     vm_exec src_ssh "$VM_A_NAME" "ping -I eth1 -c 3 -W 2 $VM_MIGRATE_IP" \
         && success "reachable" || fail "unreachable"
