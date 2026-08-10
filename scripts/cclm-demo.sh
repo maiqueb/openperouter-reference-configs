@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - OpenPERouter EVPN infrastructure already provisioned on both clusters
-#   - EVPN NAD "evpn" in the target namespace on both clusters
+#   - Linux bridge (default: brvni110) created on worker nodes via NNCP
 #   - SSH access to both cluster nodes via beaker key
 #   - FRR ToR router running as podman container "frr" on each cluster node
 #   - External client running as podman container "client" on destination node
@@ -26,8 +26,15 @@ set -euo pipefail
 SRC_HOST="${SRC_HOST:-zeus22.lab.eng.tlv2.redhat.com}"
 DST_HOST="${DST_HOST:-zeus20.lab.eng.tlv2.redhat.com}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/beaker}"
-NS="${NS:-evpn-localnet-test}"
+NS="${NS:-evpn-linux-bridge-test}"
 VM_IMAGE="${VM_IMAGE:-quay.io/kubevirt/fedora-with-test-tooling-container-disk:v1.7.0}"
+
+NAD_NAME="${NAD_NAME:-evpn-l2vni-110}"
+VNI_BRIDGE="${VNI_BRIDGE:-brvni110}"
+L2VNI="${L2VNI:-110}"
+L2VNI_CR_NAME="${L2VNI_CR_NAME:-layer2}"
+L3VNI_CR_NAME="${L3VNI_CR_NAME:-red}"
+OPENPEROUTER_NS="${OPENPEROUTER_NS:-openperouter-system}"
 
 VM_A_NAME="vm-a"
 VM_A_IP="192.170.1.3"
@@ -45,6 +52,15 @@ VM_GW="192.170.1.1"
 
 EXT_CLIENT_CONTAINER="client"
 EXT_CLIENT_HOST="$DST_HOST"
+
+SRC_TOR_ASN="${SRC_TOR_ASN:-64522}"
+SRC_OCP_ASN="${SRC_OCP_ASN:-64524}"
+DST_TOR_ASN="${DST_TOR_ASN:-64512}"
+DST_OCP_ASN="${DST_OCP_ASN:-64514}"
+L3VNI="${L3VNI:-100}"
+
+SRC_TOR_RMAC="${SRC_TOR_RMAC:-aa:bb:cc:00:00:65}"
+DST_TOR_RMAC="${DST_TOR_RMAC:-aa:bb:cc:00:00:64}"
 
 IPERF_DURATION="${IPERF_DURATION:-120}"
 
@@ -142,6 +158,94 @@ echo "ERROR: Timeout waiting for command in VM $VM" >&2; exit 1
 '
     src_ssh "cat > /tmp/cclm-vm-exec.sh && chmod +x /tmp/cclm-vm-exec.sh" <<< "$helper"
     dst_ssh "cat > /tmp/cclm-vm-exec.sh && chmod +x /tmp/cclm-vm-exec.sh" <<< "$helper"
+}
+
+# ============================================================================
+# ToR L3 routing configuration
+# ============================================================================
+configure_tor_l3_routing() {
+    info "Configuring ToR L3VNI route-target imports for cross-cluster routing..."
+
+    src_ssh "podman exec frr vtysh \
+      -c 'configure terminal' \
+      -c 'router bgp $SRC_TOR_ASN vrf red' \
+      -c 'address-family l2vpn evpn' \
+      -c 'route-target import $SRC_TOR_ASN:$L3VNI' \
+      -c 'route-target import $SRC_OCP_ASN:$L3VNI' \
+      -c 'route-target import $DST_TOR_ASN:$L3VNI' \
+      -c 'route-target import $DST_OCP_ASN:$L3VNI' \
+      -c 'end' \
+      -c 'write memory'" >/dev/null 2>&1
+    success "Source ToR: importing RTs from all ASNs ($SRC_TOR_ASN, $SRC_OCP_ASN, $DST_TOR_ASN, $DST_OCP_ASN)"
+
+    dst_ssh "podman exec frr vtysh \
+      -c 'configure terminal' \
+      -c 'router bgp $DST_TOR_ASN vrf red' \
+      -c 'address-family l2vpn evpn' \
+      -c 'route-target import $DST_TOR_ASN:$L3VNI' \
+      -c 'route-target import $DST_OCP_ASN:$L3VNI' \
+      -c 'route-target import $SRC_TOR_ASN:$L3VNI' \
+      -c 'route-target import $SRC_OCP_ASN:$L3VNI' \
+      -c 'end' \
+      -c 'write memory'" >/dev/null 2>&1
+    success "Destination ToR: importing RTs from all ASNs ($DST_TOR_ASN, $DST_OCP_ASN, $SRC_TOR_ASN, $SRC_OCP_ASN)"
+
+    info "Setting unique Router MACs on L3VNI SVI (br100)..."
+    src_ssh "podman exec frr ip link set br100 address $SRC_TOR_RMAC" 2>/dev/null
+    dst_ssh "podman exec frr ip link set br100 address $DST_TOR_RMAC" 2>/dev/null
+    success "Router MACs: src=$SRC_TOR_RMAC dst=$DST_TOR_RMAC"
+}
+
+# ============================================================================
+# L2VNI manifest generator (linux-bridge hostmaster)
+# ============================================================================
+gen_l2vni_manifest() {
+    cat <<EOF
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: $L2VNI_CR_NAME
+  namespace: $OPENPEROUTER_NS
+spec:
+  hostMaster:
+    type: LinuxBridge
+    linuxBridge:
+      lifecycle: External
+      name: $VNI_BRIDGE
+  gatewayIPs: ["$VM_GW/24"]
+  vni: $L2VNI
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: $L3VNI_CR_NAME
+EOF
+}
+
+# ============================================================================
+# Linux-bridge NAD manifest generator
+# ============================================================================
+gen_nad_manifest() {
+    cat <<EOF
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: $NAD_NAME
+  namespace: $NS
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/$VNI_BRIDGE
+spec:
+  config: |
+    {
+        "cniVersion": "0.3.1",
+        "name": "$NAD_NAME",
+        "type": "bridge",
+        "bridge": "$VNI_BRIDGE",
+        "ipam": {},
+        "macspoofchk": false,
+        "preserveDefaultVlan": false,
+        "disableContainerInterface": true
+    }
+EOF
 }
 
 # ============================================================================
@@ -296,6 +400,7 @@ do_setup() {
 
     detect_kubeconfig
     deploy_vm_exec_helper
+    configure_tor_l3_routing
 
     info "Ensuring namespace '$NS' exists..."
     src_oc "create ns $NS" 2>/dev/null || true
@@ -303,36 +408,32 @@ do_setup() {
 
     exchange_kubevirt_ca
 
-    info "Verifying EVPN NAD on both clusters..."
-    local nad_err
-    if ! nad_err=$(src_oc "get net-attach-def evpn -n $NS" 2>&1); then
-        fail "NAD 'evpn' check failed on source cluster:"
-        echo "  $nad_err"
-        exit 1
-    fi
-    if ! nad_err=$(dst_oc "get net-attach-def evpn -n $NS" 2>&1); then
-        fail "NAD 'evpn' check failed on destination cluster:"
-        echo "  $nad_err"
-        exit 1
-    fi
-    success "EVPN NAD present on both clusters"
+    info "Applying L2VNI '$L2VNI_CR_NAME' with linux-bridge hostmaster on both clusters..."
+    gen_l2vni_manifest | src_oc "apply -f -"
+    gen_l2vni_manifest | dst_oc "apply -f -"
+    success "L2VNI '$L2VNI_CR_NAME' (VNI $L2VNI, bridge $VNI_BRIDGE) applied on both clusters"
+
+    info "Provisioning linux-bridge NAD '$NAD_NAME' on both clusters..."
+    gen_nad_manifest | src_oc "apply -f -"
+    gen_nad_manifest | dst_oc "apply -f -"
+    success "Linux-bridge NAD '$NAD_NAME' applied on both clusters"
 
     # --- Cluster A VMs ---
     info "Creating $VM_A_NAME on source cluster (A)..."
-    gen_vm_manifest "$VM_A_NAME" "$VM_A_IP" "$VM_A_MAC" "Always" "evpn" \
+    gen_vm_manifest "$VM_A_NAME" "$VM_A_IP" "$VM_A_MAC" "Always" "$NAD_NAME" \
         | src_oc "apply -f -"
 
     info "Creating $VM_MIGRATE_NAME on source cluster (A)..."
-    gen_vm_manifest "$VM_MIGRATE_NAME" "$VM_MIGRATE_IP" "$VM_MIGRATE_MAC" "Always" "evpn" \
+    gen_vm_manifest "$VM_MIGRATE_NAME" "$VM_MIGRATE_IP" "$VM_MIGRATE_MAC" "Always" "$NAD_NAME" \
         | src_oc "apply -f -"
 
     # --- Cluster B VMs ---
     info "Creating $VM_B_NAME on destination cluster (B)..."
-    gen_vm_manifest "$VM_B_NAME" "$VM_B_IP" "$VM_B_MAC" "Always" "evpn" \
+    gen_vm_manifest "$VM_B_NAME" "$VM_B_IP" "$VM_B_MAC" "Always" "$NAD_NAME" \
         | dst_oc "apply -f -"
 
     info "Creating $VM_MIGRATE_NAME receiver on destination cluster (B)..."
-    gen_vm_manifest "$VM_MIGRATE_NAME" "$VM_MIGRATE_IP" "$VM_MIGRATE_MAC" "WaitAsReceiver" "$NS/evpn" \
+    gen_vm_manifest "$VM_MIGRATE_NAME" "$VM_MIGRATE_IP" "$VM_MIGRATE_MAC" "WaitAsReceiver" "$NS/$NAD_NAME" \
         | dst_oc "apply -f -"
 
     # --- Wait for readiness ---
@@ -567,17 +668,23 @@ EOF
 
     local migration_done=false
     for _ in $(seq 1 90); do
-        local ts src_mig dst_mig vmi_a vmi_b
+        local ts src_mig dst_mig vmi_a vmi_b nhop
         ts=$(date +"%H:%M:%S")
         src_mig=$(src_oc "get vmim vmim-source -n $NS -o jsonpath='{.status.phase}'" 2>/dev/null || echo "?")
         dst_mig=$(dst_oc "get vmim vmim-target -n $NS -o jsonpath='{.status.phase}'" 2>/dev/null || echo "?")
         vmi_a=$(src_oc "get vmi $VM_MIGRATE_NAME -n $NS -o jsonpath='{.status.phase}'" 2>/dev/null || echo "Gone")
         vmi_b=$(dst_oc "get vmi $VM_MIGRATE_NAME -n $NS -o jsonpath='{.status.phase}'" 2>/dev/null || echo "-")
+        nhop=$(src_tor "show bgp l2vpn evpn route type 2" 2>/dev/null \
+            | grep -A1 "$VM_MIGRATE_MAC" \
+            | awk '/^[[:space:]]{10,}/{print $1}' \
+            | sort -u \
+            | paste -sd,)
+        nhop="${nhop:-?}"
 
         src_mig="${src_mig//\'/}"; dst_mig="${dst_mig//\'/}"
         vmi_a="${vmi_a//\'/}"; vmi_b="${vmi_b//\'/}"
 
-        echo "[$ts] Migration: src=$src_mig dst=$dst_mig | VMI: A=$vmi_a B=$vmi_b"
+        echo "[$ts] Migration: src=$src_mig dst=$dst_mig | VMI: A=$vmi_a B=$vmi_b | NextHop=$nhop"
 
         if [[ "$vmi_b" == "Running" ]] && { [[ "$vmi_a" == "Gone" ]] || [[ -z "$vmi_a" ]]; }; then
             echo ""
@@ -727,6 +834,10 @@ do_cleanup() {
     src_oc "wait --for=delete vm/$VM_A_NAME -n $NS --timeout=60s" 2>/dev/null || true
     dst_oc "wait --for=delete vm/$VM_B_NAME -n $NS --timeout=60s" 2>/dev/null || true
 
+    info "Deleting linux-bridge NAD..."
+    src_oc "delete net-attach-def $NAD_NAME -n $NS" 2>/dev/null || true
+    dst_oc "delete net-attach-def $NAD_NAME -n $NS" 2>/dev/null || true
+
     echo ""
     echo -e "${CYAN}Remaining resources:${NC}"
     src_oc "get vm,vmi,vmim -n $NS" 2>/dev/null || echo "  (none on source cluster)"
@@ -763,13 +874,23 @@ case "${1:-}" in
         echo "  cleanup            Tear down all demo resources"
         echo ""
         echo "Environment overrides:"
-        echo "  SRC_HOST           Source cluster node   (default: $SRC_HOST)"
-        echo "  DST_HOST           Dest cluster node     (default: $DST_HOST)"
-        echo "  SSH_KEY            SSH private key        (default: \$HOME/.ssh/beaker)"
-        echo "  NS                 Namespace              (default: $NS)"
-        echo "  VM_IMAGE           Container disk image   (default: $VM_IMAGE)"
-        echo "  IPERF_DURATION     iperf3 test duration   (default: $IPERF_DURATION)"
-        echo "  SRC_KUBECONFIG     Source cluster config   (default: /root/.kube/config)"
-        echo "  DST_KUBECONFIG     Dest cluster config     (default: /root/.kube/config)"
+        echo "  SRC_HOST           Source cluster node     (default: $SRC_HOST)"
+        echo "  DST_HOST           Dest cluster node       (default: $DST_HOST)"
+        echo "  SSH_KEY            SSH private key          (default: \$HOME/.ssh/beaker)"
+        echo "  NS                 Namespace                (default: $NS)"
+        echo "  NAD_NAME           NAD name                  (default: $NAD_NAME)"
+        echo "  VNI_BRIDGE         Linux bridge name         (default: $VNI_BRIDGE)"
+        echo "  L2VNI              L2 VNI number             (default: $L2VNI)"
+        echo "  L2VNI_CR_NAME      L2VNI CR name             (default: $L2VNI_CR_NAME)"
+        echo "  L3VNI_CR_NAME      L3VNI CR name             (default: $L3VNI_CR_NAME)"
+        echo "  OPENPEROUTER_NS    OpenPERouter namespace    (default: $OPENPEROUTER_NS)"
+        echo "  VM_IMAGE           Container disk image     (default: $VM_IMAGE)"
+        echo "  IPERF_DURATION     iperf3 test duration     (default: $IPERF_DURATION)"
+        echo "  SRC_KUBECONFIG     Source cluster config     (default: /root/.kube/config)"
+        echo "  DST_KUBECONFIG     Dest cluster config       (default: /root/.kube/config)"
+        echo "  SRC_TOR_ASN        Source ToR BGP ASN        (default: $SRC_TOR_ASN)"
+        echo "  DST_TOR_ASN        Dest ToR BGP ASN          (default: $DST_TOR_ASN)"
+        echo "  SRC_OCP_ASN        Source OCP nodes ASN      (default: $SRC_OCP_ASN)"
+        echo "  DST_OCP_ASN        Dest OCP nodes ASN        (default: $DST_OCP_ASN)"
         ;;
 esac
