@@ -49,12 +49,12 @@ spec:
 apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
-  name: underlay
+  name: underlay-worker0
   namespace: openperouter-system
 spec:
   nodeSelector:
     matchLabels:
-      node-role.kubernetes.io/worker: ""
+      kubernetes.io/hostname: <worker-node-0>
   asn: 64514
   tunnelEndpoint:
     cidrs:
@@ -63,14 +63,63 @@ spec:
     - asn: 64512
       address: 192.168.10.129
   interfaces:
-    - type: NetworkDevice
-      networkDevice:
-        interfaceName: ens4mvln
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: ens4
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 192.168.10.100/24
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker1
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-1>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.10.129
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: ens4
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 192.168.10.101/24
 ----
 
-The `ens4mvln` macvlan must exist before OpenPERouter reconciles the
-`Underlay`. The repository test setup creates it with `ip` commands and
-re-adds the static address inside the `perouter` namespace, as described in
+The `CNIDevice` raw configuration creates the underlay device in the router
+pod on top of the node interface, for example the macvlan on `ens4` shown
+here. The parent interface stays in the host network namespace, so you do not
+need to create a `NodeNetworkConfigurationPolicy` for it. Use an `ipvlan`
+plugin when the underlay must share the MAC address of the parent, and attach
+the device to an OVS internal interface when the parent is an OVS bridge.
+Create one `Underlay` per node with a unique address, as described in
 xref:proc-preparing-the-node-underlay_{context}[Preparing the node underlay].
 
 == VNIs and anycast gateway
@@ -387,7 +436,7 @@ and VNI 100 as `L3` in VRF `red`.
 $ oc delete vm vm1 vm2 -n <namespace>
 $ oc delete network-attachment-definition evpn-l2vni-110 -n <namespace>
 $ oc delete l2vni red-110 l3vni red-100 -n openperouter-system
-$ oc delete underlay underlay -n openperouter-system
+$ oc delete underlay underlay-worker0 underlay-worker1 -n openperouter-system
 $ oc delete nncp linux-bridge-perouter-vni-110
 $ podman rm -f frr
 ----

@@ -58,9 +58,21 @@ spec:
     - asn: 64512
       address: 192.168.10.129
   interfaces:
-    - type: NetworkDevice
-      networkDevice:
-        interfaceName: ens4mvln
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: bond1
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 10.200.11.50/16
 ----
 
 `nodeSelector`:: Selects the nodes that run the router configuration. The
@@ -76,10 +88,11 @@ allocates its VTEP address. The addresses must be routable over the underlay.
 `address`. Optional fields include `passwordSecret`, `holdTimeSeconds`,
 `bfd`, and `addressFamilies`.
 
-`interfaces`:: The underlay interfaces. Each entry uses either
-`type: NetworkDevice` with `networkDevice.interfaceName`, or `type:
-CNIDevice` with a `cniDevice` raw Multus configuration. Use one type per
-`Underlay`.
+`interfaces`:: The underlay interfaces. Each entry uses `type: CNIDevice` with
+a `cniDevice` raw CNI configuration. The raw configuration creates a macvlan
+or ipvlan device on top of a node interface or bridge, and obtains its address
+through DHCP or static IPAM. If you need static addresses or per-node MAC
+addresses, configure the `nodeSelector` and the raw configuration accordingly.
 
 The resource also exposes optional advanced fields such as `routerIDCIDR`,
 `gracefulRestart`, `isis`, `srv6`, and `routeReflector`. The reference
@@ -157,24 +170,18 @@ fabric.
 
 `spec.hostMaster.<type>.lifecycle`:: `External` when the bridge already exists
 and another component owns it, for example a `NodeNetworkConfigurationPolicy`
-or OVN-Kubernetes. `Managed` when OpenPERouter creates and manages the bridge.
+or OVN-Kubernetes.
 The field is required.
 
-`spec.hostMaster.<type>.name`:: The bridge name. Required when `lifecycle` is
-`External`.
+`spec.hostMaster.<type>.name`:: The bridge name. Required.
 
 `spec.gatewayIPs`:: The gateway addresses for the workload subnet. An L2VNI
 can have a gateway only when it also has a `routingDomain`. Without a routing
-domain, the L2VNI is a pure Layer 2 segment.
+domain, the L2VNI is a pure Layer 2 segment, only useful for east/west
+communication.
 
 `spec.routingDomain`:: Associates the L2VNI with an L3VNI. Set `type: L3VNI`
 and `l3vni.name` to the name of the `L3VNI` object.
-
-The v0.3.0 `L2VNI` resource has no VLAN tag or trunk field. To provide
-multiple VLANs, create one L2VNI and one bridge mapping per VLAN, or let
-OVN-Kubernetes apply the VLAN tag in the localnet network attachment. A
-dedicated `L2Trunk` resource was added after v0.3.0 and is not available with
-the installation described in this assembly.
 
 == How the router pod realizes the resources
 
@@ -211,11 +218,6 @@ For an OVN-Kubernetes localnet bridge, the NMState policy must:
 * Add the bridge mapping under `ovn.bridge-mappings`, for example
   `localnet: datanet` and `bridge: ovsbr1`. The NAD
   `physicalNetworkName` must match the `localnet` value.
-
-Multicast snooping is not enabled in the reference policies. If your virtual
-machines rely on multicast, consider adding `mcast-snooping-enable: true` to
-the OVS bridge options and verify the behavior with your OVN-Kubernetes
-version.
 
 [role="_additional-resources"]
 == Additional resources

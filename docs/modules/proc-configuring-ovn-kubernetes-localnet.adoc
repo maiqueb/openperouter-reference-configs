@@ -94,11 +94,10 @@ $ oc get nncp
 $ oc get nnce
 ----
 
-. Configure the underlay. Use the `CNIDevice` variant with `master: bond1` if
-the underlay macvlan must stay in the host namespace, or the
-`NetworkDevice` variant if you want OpenPERouter to own the interface. The
-converted `Underlay` from the dedicated bridge reference configuration uses
-static addresses on the bond:
+. Configure the underlay. Use a `CNIDevice` whose raw configuration creates a
+macvlan or ipvlan device on top of the node interface or bridge. The converted
+`Underlay` from the dedicated bridge reference configuration uses a macvlan on
+`bond1` with static addresses:
 +
 [source,yaml]
 ----

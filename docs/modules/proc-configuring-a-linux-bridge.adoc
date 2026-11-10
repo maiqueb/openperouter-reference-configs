@@ -15,7 +15,8 @@ provides the local attachment point.
 .Prerequisites
 
 * The Kubernetes NMState Operator and OpenPERouter are installed.
-* The worker nodes have a dedicated interface or macvlan for the underlay.
+* The worker nodes have a node interface or bridge that can host the underlay
+  macvlan or ipvlan.
 * OpenShift Virtualization is installed if you plan to attach virtual
   machines.
 * The external router is configured and reachable from the node underlay
@@ -59,21 +60,21 @@ $ oc wait nncp linux-bridge-perouter-vni-110 \
     --for=condition=Available --timeout=10m
 ----
 
-. Configure the underlay. The Linux bridge reference configuration uses a
-`NetworkDevice` named `ens4mvln`, which is a macvlan on the host interface
-`ens4`:
+. Configure the underlay. The Linux bridge reference configuration creates a
+macvlan on top of the node interface `ens4` through a `CNIDevice`. The
+following example selects one node and uses a static address:
 +
 [source,yaml]
 ----
 apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
-  name: underlay
+  name: underlay-worker0
   namespace: openperouter-system
 spec:
   nodeSelector:
     matchLabels:
-      node-role.kubernetes.io/worker: ""
+      kubernetes.io/hostname: <worker-node-0>
   asn: 64514
   tunnelEndpoint:
     cidrs:
@@ -82,10 +83,29 @@ spec:
     - asn: 64512
       address: 192.168.10.129
   interfaces:
-    - type: NetworkDevice
-      networkDevice:
-        interfaceName: ens4mvln
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: ens4
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 192.168.10.100/24
 ----
++
+The CNI plugin creates the macvlan in the router pod on top of the node
+interface, which stays in the host network namespace. The example selects one
+node; repeat it for each worker node and give each node a unique address. If
+the parent is an OVS bridge, attach the device to an OVS internal interface
+instead. To share the MAC address of the parent, use an `ipvlan` plugin
+instead of `macvlan`.
 +
 The source file `linux-bridge/01-openperouter-underlay.yaml` uses the legacy
 API. Apply the converted resource:

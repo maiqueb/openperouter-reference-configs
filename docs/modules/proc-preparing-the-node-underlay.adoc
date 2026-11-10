@@ -8,7 +8,8 @@
 
 [role="_abstract"]
 Give each router pod an IP address on the underlay network that reaches the
-external BGP and EVPN router, and bind that interface to an `Underlay` custom
+external BGP and EVPN router by creating a macvlan or ipvlan device on top of
+a node interface or bridge, and bind that device to an `Underlay` custom
 resource. The underlay carries the BGP session and the VXLAN tunnels; it is
 separate from the bridge that carries workload traffic.
 
@@ -17,27 +18,28 @@ separate from the bridge that carries workload traffic.
 * The Kubernetes NMState Operator and OpenPERouter are installed.
 * You have planned the underlay subnet, the VTEP address pool, and the
   cluster and external router ASNs.
-* The underlay interface or its parent interface is up on every selected
-  worker node.
+* The node interface or bridge that will host the underlay macvlan or ipvlan
+  is up on every selected worker node.
 * The external router is reachable from the underlay addresses that you
   assign.
 
 .Procedure
 
-. Decide how OpenPERouter obtains the underlay interface:
+. Create a macvlan or ipvlan device on top of a node interface or bridge. The
+`Underlay` resource uses a `CNIDevice` with a raw Multus CNI configuration.
+The CNI plugin creates the device in the router pod, and the parent interface
+stays in the host network namespace.
 +
 --
-*Use a `CNIDevice`* when the interface must remain in the host network
-namespace, for example when the node has a single NIC or bond that
-OVN-Kubernetes already uses. The Multus raw configuration creates a macvlan
-interface in the router pod and gives it a static or DHCP address.
+*Use a macvlan* when the underlay needs its own MAC address on the parent
+interface or bridge.
 
-*Use a `NetworkDevice`* when a dedicated interface can be moved into the
-persistent `perouter` network namespace. The interface is no longer available
-to the host after OpenPERouter takes ownership of it.
+*Use an ipvlan* when the underlay must share the MAC address of the parent
+interface, or when the parent cannot host a macvlan.
 
-Use one interface type per `Underlay` resource. Do not mix `CNIDevice` and
-`NetworkDevice` entries in the same resource.
+If the parent is an OVS bridge, attach the macvlan or ipvlan to an OVS
+internal interface, because OVS bridge ports do not support these device
+types directly.
 --
 
 . Record the underlay values that you will use. The following example uses
@@ -52,9 +54,9 @@ VTEP pool:              100.65.0.0/24
 node underlay addresses: 10.200.11.50/16, 10.200.11.51/16
 ----
 
-. If you chose a `CNIDevice`, create an `Underlay` that runs a macvlan on the
-existing parent interface. The following example uses DHCP and a stable MAC
-address on a shared `br-ex`:
+. Create an `Underlay` that uses a `CNIDevice`. The following example creates
+a macvlan on the shared `br-ex` bridge and obtains its address through DHCP
+with a stable MAC address:
 +
 [source,yaml]
 ----
@@ -94,47 +96,14 @@ spec:
           mac: "aa:bb:cc:00:00:01"
 ----
 +
-The `interfaceName` value, `net1` in the example, is the name that the
-interface receives inside the router pod. The CNI plugin creates it; no
-`NodeNetworkConfigurationPolicy` is required for this path. If your underlay
-uses a kernel bond instead of `br-ex`, set `master` to the bond name, for
-example `bond1`.
-
-. If you chose a `NetworkDevice`, create the interface on the host and then
-create an `Underlay` that names it. The Linux bridge reference configuration
-uses a macvlan named `ens4mvln` on `ens4`:
-+
-[source,terminal]
-----
-$ oc debug node/<worker-node> -- chroot /host \
-    ip link add link ens4 name ens4mvln type macvlan mode bridge
-----
-+
-Then create the `Underlay`:
-+
-[source,yaml]
-----
-apiVersion: network.openperouter.io/v1alpha1
-kind: Underlay
-metadata:
-  name: underlay
-  namespace: openperouter-system
-spec:
-  nodeSelector:
-    matchLabels:
-      node-role.kubernetes.io/worker: ""
-  asn: 64514
-  tunnelEndpoint:
-    cidrs:
-      - 100.65.0.0/24
-  neighbors:
-    - asn: 64512
-      address: 192.168.10.129
-  interfaces:
-    - type: NetworkDevice
-      networkDevice:
-        interfaceName: ens4mvln
-----
+The `interfaceName` value, `net1` in the example, is the name that the device
+receives inside the router pod. The CNI plugin creates the device; no
+`NodeNetworkConfigurationPolicy` is required for this path. Set `master` to
+the node interface or bridge that hosts the underlay, for example `br-ex`,
+`bond1`, or `ens4`. To use a static address, replace the `dhcp` IPAM block
+with `type: static` and list the address under `addresses`. To create an
+ipvlan device instead, set the plugin `type` to `ipvlan`, set `mode` to `l2`
+or `l3`, and remove the `capabilities.mac` and `runtimeConfig.mac` entries.
 
 . Apply the `Underlay` resource:
 +
@@ -142,31 +111,6 @@ spec:
 ----
 $ oc apply -f underlay.yaml
 ----
-
-. If the `NetworkDevice` needs a static address, add the address after
-OpenPERouter moves the interface into the `perouter` network namespace:
-+
-[source,terminal]
-----
-$ oc get pods -n openperouter-system
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
-    ip addr add 192.168.10.100/24 dev ens4mvln
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
-    ip link set ens4mvln up
-----
-+
-[NOTE]
-====
-Do not create this interface with Kubernetes NMState when OpenPERouter will
-move it into its network namespace. NMState reconciles the interface after the
-move and recreates the host device, which breaks the BGP session. The
-`linux-bridge/test/setup.sh` script creates the macvlan with `ip` commands for
-this reason, then re-adds the static address inside the `perouter` namespace.
-The address added with `ip addr add` is not persisted across a router pod
-restart or a node reboot. For a repeatable deployment, prefer a `CNIDevice`
-with DHCP or configure the address through the mechanism that your platform
-provides.
-====
 
 .Verification
 
@@ -187,9 +131,8 @@ $ oc exec -n openperouter-system <router-pod> -c frr -- \
     ip addr show net1
 ----
 +
-For a `NetworkDevice`, replace `net1` with the interface name in the
-`Underlay`, for example `ens4mvln`. The address must be in the underlay subnet
-and must be reachable from the external router.
+The address must be in the underlay subnet and must be reachable from the
+external router.
 
 . Confirm that the VTEP address has been assigned:
 +

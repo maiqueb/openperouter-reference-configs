@@ -23,9 +23,10 @@ so that you can confirm the assumptions before you start.
 * OVN-Kubernetes as the cluster network provider, with Multus available for
   secondary networks.
 * At least two worker nodes on the same underlay Layer 2 segment.
-* A dedicated NIC, a bond, or a shared NIC that can carry the underlay and the
-  EVPN workload segment. The shared NIC model additionally requires that
-  OVN-Kubernetes already use `br-ex`.
+* A dedicated NIC, a bond, a shared NIC, or a bridge that can carry the
+  underlay and the EVPN workload segment. The underlay uses a macvlan or
+  ipvlan device on top of that interface or bridge. The shared NIC model
+  additionally requires that OVN-Kubernetes already use `br-ex`.
 * The Kubernetes NMState Operator installed and a `NMState` instance created.
 * OpenPERouter v0.3.0 installed in the `openperouter-system` namespace.
 * For virtual machines, OpenShift Virtualization installed and a
@@ -304,8 +305,9 @@ Use the following table when you convert a manifest from the older
 
 |`spec.nics`
 |`spec.interfaces`
-|Each entry is an object with `type: NetworkDevice` and
-`networkDevice.interfaceName`.
+|Recreate each interface as an object with `type: CNIDevice` and a
+`cniDevice` raw CNI configuration that creates a macvlan or ipvlan device on a
+node interface or bridge.
 
 |`spec.hostmaster`
 |`spec.hostMaster`
