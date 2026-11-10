@@ -1,0 +1,449 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: REFERENCE
+[id="ref-preparation-and-configuration-choices_{context}"]
+= Preparation and configuration choices
+
+[role="_abstract"]
+Before you install the operators or create any OpenPERouter resources, decide
+which attachment model fits your cluster, reserve the addresses and VNI
+identifiers that the examples use, and check whether the manifests in this
+repository use the API version that your operator provides.
+
+== What the examples assume
+
+The procedures and examples in this assembly assume the following
+environment. The procedures create most of these resources; the list is here
+so that you can confirm the assumptions before you start.
+
+* An OpenShift Container Platform cluster with cluster-admin access and the
+  `oc` CLI.
+* OVN-Kubernetes as the cluster network provider, with Multus available for
+  secondary networks.
+* At least two worker nodes on the same underlay Layer 2 segment.
+* A dedicated NIC, a bond, or a shared NIC that can carry the underlay and the
+  EVPN workload segment. The shared NIC model additionally requires that
+  OVN-Kubernetes already use `br-ex`.
+* The Kubernetes NMState Operator installed and a `NMState` instance created.
+* OpenPERouter v0.3.0 installed in the `openperouter-system` namespace.
+* For virtual machines, OpenShift Virtualization installed and a
+  `HyperConverged` instance created.
+* An external router that runs FRR and has one interface on the underlay
+  network, one interface on the external client network, and VXLAN and BGP
+  connectivity to the cluster nodes.
+
+[NOTE]
+====
+The checked-in `linux-bridge/` and `localnet/dedicated-bridge/` manifests use
+the older `openpe.openperouter.github.io/v1alpha1` API. They do not apply
+unchanged to an OpenPERouter v0.3.0 operator. The examples in this assembly are
+the converted equivalents. `localnet/br-ex/03-openperouter-logical-infra.yaml`
+and `localnet/br-ex/migration-networks/*` already use the current
+`network.openperouter.io/v1alpha1` API and need only a namespace substitution.
+====
+
+== Reference environment
+
+The reference environment is the environment in which the repository
+configurations were developed. It is not a supported-version matrix.
+
+[cols="2,2,4"]
+|===
+|Component |Version used in this repository |Notes
+
+|OpenShift Container Platform
+|4.22.1
+|Created with `kcli` as described in the repository `README.md`. Use a version
+that your organization supports.
+
+|OVN-Kubernetes
+|Bundled with the cluster
+|Provides the default cluster network and the localnet secondary network.
+
+|Multus
+|Bundled with the cluster
+|Attaches pods and virtual machines to secondary networks.
+
+|Kubernetes NMState Operator
+|`nmstate.io/v1`
+|Creates the OVS bridges, Linux bridges, bonds, and macvlan interfaces.
+
+|OpenShift Virtualization
+|Bundled operator channel for the cluster version
+|Required only for the virtual machine procedures.
+
+|OpenPERouter
+|v0.3.0
+|The API and examples target this release.
+
+|FRRouting
+|10.6.0
+|Used by the external router container image.
+
+|Linux kernel
+|5.18 or later
+|Recommended for full IPv6 EVPN support.
+|===
+
+== Choosing an attachment model
+
+The following table compares the models that this assembly documents. The
+choice affects the NAD type, the bridge owner, and whether pods or virtual
+machines can use the attachment.
+
+[cols="1,2,2,2"]
+|===
+|Criterion |OVN-K localnet, dedicated bridge |Shared single NIC or bond |Linux bridge
+
+|Bridge owner
+|OVN-Kubernetes, through a bridge mapping
+|OVN-Kubernetes for `br-ex`; OpenPERouter L2VNI on a separate `ovsbr1`
+|Kernel, through a `NodeNetworkConfigurationPolicy`
+
+|Workload types
+|Pods and virtual machines
+|Pods and virtual machines
+|Virtual machines with the reference NAD; pods need a different NAD
+
+|NAD type
+|`ovn-k8s-cni-overlay`, `topology: localnet`
+|`ovn-k8s-cni-overlay`, `topology: localnet`
+|`bridge`, with the KubeVirt bridge resource annotation
+
+|Dedicated NIC or bond
+|Recommended
+|Not required; the node has a single NIC or bond
+|Required for the OpenPERouter underlay in the reference configuration
+
+|VLAN trunking
+|One localnet network per VLAN; no trunk mode
+|One localnet network per VLAN; no trunk mode
+|One L2VNI per bridge; no VLAN tag field in the L2VNI
+
+|OVN-Kubernetes network policy
+|Yes
+|Yes for the localnet network
+|No; OVN-Kubernetes does not manage the kernel bridge
+
+|MAC spoof checking
+|Always on for the KubeVirt localnet path
+|Always on for the KubeVirt localnet path
+|Disabled in the reference NAD with `macspoofchk: false`
+
+|Promiscuous mode
+|Not supported
+|Not supported
+|Not required by the reference configuration
+
+|Live migration within the cluster
+|Supported
+|Supported
+|Supported
+
+|Choose this model when
+|You want OVN-Kubernetes to own the segment and you can dedicate a bridge
+|You have one NIC or bond and want to keep the default cluster network on
+`br-ex`
+|You want a plain kernel bridge and KubeVirt bridge binding independent of
+OVN-Kubernetes
+|===
+
+The shared single NIC model has two variants. In the repository pattern,
+VXLAN stretches the secondary Layer 2 segment over the underlay, so the
+physical uplink does not need a VLAN for that segment. In the VLAN trunk
+variant, which is adapted from the OpenShift Container Platform documentation,
+one VLAN carries the default cluster network and the remaining VLANs are
+exposed as separate OVN-Kubernetes localnet secondary networks. Those VLANs
+are not stretched by OpenPERouter unless you also create one bridge and one
+L2VNI per VLAN.
+
+== Address and identifier plan
+
+Use the following values as a baseline. If you change a value, change it in
+every manifest that references it. The examples use the same workload subnet,
+gateway, and VNI identifiers in all three models so that you can compare them.
+
+[cols="2,2,2,2"]
+|===
+|Value |Dedicated bridge |Shared single NIC |Linux bridge
+
+|OpenPERouter namespace
+|`openperouter-system`
+|`openperouter-system`
+|`openperouter-system`
+
+|Cluster ASN
+|64514
+|64514
+|64514
+
+|External router ASN
+|64512
+|64512
+|64512
+
+|VRF
+|`red`
+|`red`
+|`red`
+
+|L3VNI object and VNI
+|`red`, VNI 100
+|`red`, VNI 100
+|`red-100`, VNI 100
+
+|L2VNI object and VNI
+|`layer2`, VNI 110
+|`layer2`, VNI 110
+|`red-110`, VNI 110
+
+|Workload subnet and anycast gateway
+|`192.170.1.0/24`, `192.170.1.1`
+|`192.170.1.0/24`, `192.170.1.1`
+|`192.170.1.0/24`, `192.170.1.1`
+
+|VTEP pool
+|`100.65.0.0/24`
+|`100.65.0.0/24`
+|`100.65.0.0/24`
+
+|Underlay subnet
+|`10.200.0.0/16`, node addresses `.50` and `.51`
+|`192.168.122.0/24`, addresses from DHCP
+|`192.168.10.0/24`, node addresses `.100` and `.101`
+
+|Host bridge
+|`ovsbr1`
+|`ovsbr1`, with `br-ex` for the default cluster network
+|`brvni110`
+
+|External router address
+|`10.200.11.8`
+|`192.168.122.15`
+|`192.168.10.129`
+
+|External client network
+|`192.169.1.0/24`
+|`192.169.1.0/24`
+|`192.169.1.0/24`
+|===
+
+[NOTE]
+====
+The repository scripts in `linux-bridge/test/env.sh` and
+`localnet/br-ex/results/` use the `openshift-openperouter` namespace. The
+upstream all-in-one manifest installs OpenPERouter in `openperouter-system`.
+Whichever namespace you use, set it consistently on every OpenPERouter custom
+resource and in every `oc` command.
+====
+
+== API versions and namespaces of the checked-in manifests
+
+The repository contains manifests from more than one API generation. Check
+the source path before you copy a manifest.
+
+[cols="3,3,2,2"]
+|===
+|Repository path |API group |Namespace in manifests |Status
+
+|`localnet/dedicated-bridge/01-*.yaml`, `03-*.yaml`, `04-*.yaml`
+|`nmstate.io/v1`, `k8s.cni.cncf.io/v1`, `kubevirt.io/v1`
+|None or `default`
+|Usable as-is, with placeholders replaced
+
+|`localnet/dedicated-bridge/02-*.yaml`
+|`openpe.openperouter.github.io/v1alpha1`
+|`openperouter-system`
+|Legacy; convert to v0.3.0
+
+|`localnet/dedicated-bridge/nncp-balance-slb.yaml`
+|`nmstate.io/v1`
+|None
+|Alternative NNCP; choose one bond variant
+
+|`linux-bridge/00-*.yaml`, `03-*.yaml`, `04-*.yaml`
+|`nmstate.io/v1`, `k8s.cni.cncf.io/v1`, `kubevirt.io/v1`
+|None
+|Usable as-is, with placeholders replaced
+
+|`linux-bridge/01-*.yaml`, `02-*.yaml`
+|`openpe.openperouter.github.io/v1alpha1`
+|None; scripts use `openshift-openperouter`
+|Legacy; convert to v0.3.0
+
+|`localnet/br-ex/01-*.yaml`, `02-*.yaml`, `04-*.yaml`, `06-*.yaml`
+|`nmstate.io/v1`, `k8s.cni.cncf.io/v1`, `v1`
+|None or `evpn-localnet-test`
+|Usable as-is, with placeholders replaced
+
+|`localnet/br-ex/03-*.yaml`
+|`network.openperouter.io/v1alpha1`
+|`openshift-openperouter`
+|Usable with namespace substitution
+
+|`localnet/br-ex/migration-networks/*.yaml`
+|`network.openperouter.io/v1alpha1`
+|`openperouter-system`
+|Usable with placeholder substitution
+|===
+
+== Mapping the legacy API to v0.3.0
+
+Use the following table when you convert a manifest from the older
+`openpe.openperouter.github.io/v1alpha1` API.
+
+[cols="2,2,4"]
+|===
+|Legacy field |v0.3.0 field |Notes
+
+|`apiVersion: openpe.openperouter.github.io/v1alpha1`
+|`apiVersion: network.openperouter.io/v1alpha1`
+|The group changed. The version remains `v1alpha1`.
+
+|`spec.nics`
+|`spec.interfaces`
+|Each entry is an object with `type: NetworkDevice` and
+`networkDevice.interfaceName`.
+
+|`spec.hostmaster`
+|`spec.hostMaster`
+|Field names are case-sensitive.
+
+|`hostmaster.type: ovs-bridge`
+|`hostMaster.type: OVSBridge`
+|The nested field is `ovsBridge`.
+
+|`hostmaster.type: linux-bridge`
+|`hostMaster.type: LinuxBridge`
+|The nested field is `linuxBridge`.
+
+|No equivalent
+|`hostMaster.ovsBridge.lifecycle` or `hostMaster.linuxBridge.lifecycle`
+|Required in v0.3.0. Use `External` when a `NodeNetworkConfigurationPolicy`
+or OVN-Kubernetes owns the bridge.
+
+|`spec.l2gatewayips`
+|`spec.gatewayIPs`
+|A list of CIDR strings.
+
+|L2VNI `spec.vrf`
+|`spec.routingDomain.l3vni.name`
+|The value is the *name of the L3VNI object*, not the VRF name. For example,
+`red-100` is an L3VNI object whose `spec.vrf` is `red`.
+|===
+
+The correct nesting for an OVS bridge is:
+
+[source,yaml]
+----
+hostMaster:
+  type: OVSBridge
+  ovsBridge:
+    lifecycle: External
+    name: ovsbr1
+----
+
+For a Linux bridge, use `type: LinuxBridge` and the `linuxBridge` field with
+the same `lifecycle` and `name` keys.
+
+== Source manifest map
+
+The following table maps each documented example to the repository file that
+it is based on and states how the example was derived.
+
+[cols="2,3,2"]
+|===
+|Documented example |Repository source |Treatment
+
+|Dedicated bridge NNCP
+|`localnet/dedicated-bridge/01-bond-config-plus-ovs-bridge-for-localnet.yaml`
+|Copied as-is; bond and bridge caveat added
+
+|Dedicated bridge Underlay and VNIs
+|`localnet/dedicated-bridge/02-openperouter-logical-infra.yaml`
+|Converted from the legacy API
+
+|Dedicated bridge localnet NAD
+|`localnet/dedicated-bridge/03-localnet-nad.yaml`
+|Copied as-is
+
+|Dedicated bridge virtual machines
+|`localnet/dedicated-bridge/04-workloads.yaml`
+|Copied as-is; node names replaced
+
+|Dedicated bridge external router
+|Adapted from `linux-bridge/external-router/`
+|Adapted; no router artifact exists under `localnet/dedicated-bridge/`
+
+|Shared single NIC bridge mapping and NAD
+|`localnet/br-ex/01-localnet-bridge-mapping.yaml`,
+`localnet/br-ex/04-localnet-nad.yaml`
+|Copied as-is
+
+|Shared single NIC underlay and VNIs
+|`localnet/br-ex/03-openperouter-logical-infra.yaml`
+|Copied as-is except for the namespace
+
+|Shared single NIC pod workloads
+|`localnet/br-ex/06-workloads.yaml`
+|Copied as-is; node names replaced
+
+|Linux bridge NNCP, NAD, and virtual machines
+|`linux-bridge/00-vni-linux-bridge-nncp.yaml`,
+`linux-bridge/03-vni-linux-bridge-nad.yaml`,
+`linux-bridge/04-workloads.yaml`
+|Copied as-is; placeholders replaced
+
+|Linux bridge Underlay and VNIs
+|`linux-bridge/01-openperouter-underlay.yaml`,
+`linux-bridge/02-openperouter-vnis.yaml`
+|Converted from the legacy API
+
+|Linux bridge external router
+|`linux-bridge/external-router/`
+|Copied and annotated
+|===
+
+== Design choices
+
+VNI layout:: Reserve one L3VNI for the tenant VRF and one L2VNI for each
+Layer 2 segment. VNI identifiers must be unique within the EVPN fabric, not
+only within the cluster. The examples use VNI 100 for the L3VNI and VNI 110
+for the workload L2VNI.
+
+VRF name:: Use one VRF per tenant and use the same name on every node. The
+VRF name is independent of the L3VNI object name. In the Linux bridge example,
+the L3VNI object is `red-100` and its VRF is `red`.
+
+Gateway address:: Use an anycast gateway address that is outside the range
+that DHCP or static allocation assigns to workloads. The examples use the
+first address in the subnet, `192.170.1.1`.
+
+MTU:: VXLAN adds 50 bytes of encapsulation. The underlay must carry the
+encapsulated frame, and the workload interface must use an MTU that fits
+inside the tunnel. The repository results show an underlay MTU of 1500 and an
+L2VNI SVI MTU of 1450. The exact value depends on your underlay and on any
+additional encapsulation. Verify it with `ping -M do -s <size>` rather than
+assuming a fixed offset.
+
+Underlay addressing:: Static addresses are easier to troubleshoot and are used
+by the dedicated bridge and Linux bridge examples. DHCP is used by the shared
+single NIC example, where the underlay interface is a macvlan created through
+a CNI device. DHCP requires `capabilities.mac` and a stable `runtimeConfig.mac`
+so that the external router can identify the peer.
+
+Bond mode:: A kernel bond in `active-backup` mode can host a macvlan for the
+underlay and is the simplest choice when the bond is dedicated to OpenPERouter.
+An OVS bond in `balance-slb` mode is an alternative for the shared model, but
+an OVS bond is not a kernel network device, so a macvlan cannot be created
+directly on it. Attach the macvlan to an OVS internal interface instead. Do
+not combine the two bond variants in the same bridge.
+
+[role="_additional-resources"]
+== Additional resources
+
+* link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks[OpenShift Container Platform multiple networks]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/networking[OpenShift Virtualization networking]

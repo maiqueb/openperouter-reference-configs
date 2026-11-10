@@ -1,0 +1,233 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-configuring-a-linux-bridge_{context}"]
+= Configuring a Linux bridge
+
+[role="_abstract"]
+Create a kernel bridge with Kubernetes NMState, bind it to an OpenPERouter
+L2VNI, and create a `bridge` CNI network attachment for virtual machines. The
+L2VNI provides the VXLAN stretch and the anycast gateway; the kernel bridge
+provides the local attachment point.
+
+.Prerequisites
+
+* The Kubernetes NMState Operator and OpenPERouter are installed.
+* The worker nodes have a dedicated interface or macvlan for the underlay.
+* OpenShift Virtualization is installed if you plan to attach virtual
+  machines.
+* The external router is configured and reachable from the node underlay
+  addresses.
+
+.Procedure
+
+. Create the kernel bridge with a `NodeNetworkConfigurationPolicy`. The
+bridge has no IP address and no DHCP client; OpenPERouter provides the
+gateway:
++
+[source,yaml]
+----
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: linux-bridge-perouter-vni-110
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+      - name: brvni110
+        type: linux-bridge
+        state: up
+        ipv4:
+          enabled: false
+          dhcp: false
+        bridge:
+          options:
+            stp:
+              enabled: false
+----
++
+Apply the policy and wait for it to converge:
++
+[source,terminal]
+----
+$ oc apply -f 00-vni-linux-bridge-nncp.yaml
+$ oc wait nncp linux-bridge-perouter-vni-110 \
+    --for=condition=Available --timeout=10m
+----
+
+. Configure the underlay. The Linux bridge reference configuration uses a
+`NetworkDevice` named `ens4mvln`, which is a macvlan on the host interface
+`ens4`:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.10.129
+  interfaces:
+    - type: NetworkDevice
+      networkDevice:
+        interfaceName: ens4mvln
+----
++
+The source file `linux-bridge/01-openperouter-underlay.yaml` uses the legacy
+API. Apply the converted resource:
++
+[source,terminal]
+----
+$ oc apply -f openperouter-underlay.yaml
+----
+
+. Create the L3VNI and the L2VNI. The L3VNI object is `red-100` and its VRF is
+`red`. The L2VNI refers to the L3VNI object name:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L3VNI
+metadata:
+  name: red-100
+  namespace: openperouter-system
+spec:
+  vrf: red
+  vni: 100
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: red-110
+  namespace: openperouter-system
+spec:
+  vni: 110
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: red-100
+  gatewayIPs:
+    - 192.170.1.1/24
+  hostMaster:
+    type: LinuxBridge
+    linuxBridge:
+      lifecycle: External
+      name: brvni110
+----
++
+The source file `linux-bridge/02-openperouter-vnis.yaml` uses the legacy API.
+Apply the converted resources:
++
+[source,terminal]
+----
+$ oc apply -f openperouter-vnis.yaml
+----
+
+. Create the `bridge` network attachment for the virtual machines. The
+`k8s.v1.cni.cncf.io/resourceName` annotation is required for KubeVirt bridge
+binding:
++
+[source,yaml]
+----
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: evpn-l2vni-110
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/brvni110
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "evpn-l2vni-110",
+      "type": "bridge",
+      "bridge": "brvni110",
+      "ipam": {},
+      "macspoofchk": false,
+      "preserveDefaultVlan": false,
+      "disableContainerInterface": true
+    }
+----
++
+Apply the NAD:
++
+[source,terminal]
+----
+$ oc apply -f 03-vni-linux-bridge-nad.yaml
+----
+
+.Verification
+
+. Confirm that OpenPERouter created the VNI objects:
++
+[source,terminal]
+----
+$ oc get l2vni red-110 -n openperouter-system -o yaml
+$ oc get l3vni red-100 -n openperouter-system -o yaml
+----
++
+The L2VNI status must report that the node configuration is ready.
+
+. Confirm the EVPN state in the router pod:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    vtysh -c 'show evpn vni'
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    vtysh -c 'show bgp l2vpn evpn route type 2'
+----
++
+VNI 110 must be `L2` in VRF `red`, and VNI 100 must be `L3` in VRF `red`. The
+Type-2 table must contain the MAC addresses of the virtual machines after
+they start.
+
+. Confirm the bridge and gateway inside the router pod:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip link show br-pe-110
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip addr show br-pe-110
+----
++
+The `br-pe-110` interface carries the anycast gateway address
+`192.170.1.1/24`.
+
+. Confirm that the kernel bridge exists on the node and has the OpenPERouter
+veth port:
++
+[source,terminal]
+----
+$ oc debug node/<worker-node> -- chroot /host \
+    bridge link show dev brvni110
+----
+
+[NOTE]
+====
+The `disableContainerInterface: true` setting means that pods do not receive
+a usable interface from this NAD. This NAD is intended for KubeVirt virtual
+machines. Pods on this network require a different NAD configuration, and
+the Linux bridge model in this repository does not provide one.
+====
+
+[role="_additional-resources"]
+== Additional resources
+
+* xref:proc-attaching-a-virtual-machine-to-the-evpn-network_{context}[Attaching a virtual machine to the EVPN network]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/networking[OpenShift Virtualization networking]

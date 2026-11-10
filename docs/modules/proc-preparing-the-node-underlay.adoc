@@ -1,0 +1,215 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-preparing-the-node-underlay_{context}"]
+= Preparing the node underlay
+
+[role="_abstract"]
+Give each router pod an IP address on the underlay network that reaches the
+external BGP and EVPN router, and bind that interface to an `Underlay` custom
+resource. The underlay carries the BGP session and the VXLAN tunnels; it is
+separate from the bridge that carries workload traffic.
+
+.Prerequisites
+
+* The Kubernetes NMState Operator and OpenPERouter are installed.
+* You have planned the underlay subnet, the VTEP address pool, and the
+  cluster and external router ASNs.
+* The underlay interface or its parent interface is up on every selected
+  worker node.
+* The external router is reachable from the underlay addresses that you
+  assign.
+
+.Procedure
+
+. Decide how OpenPERouter obtains the underlay interface:
++
+--
+*Use a `CNIDevice`* when the interface must remain in the host network
+namespace, for example when the node has a single NIC or bond that
+OVN-Kubernetes already uses. The Multus raw configuration creates a macvlan
+interface in the router pod and gives it a static or DHCP address.
+
+*Use a `NetworkDevice`* when a dedicated interface can be moved into the
+persistent `perouter` network namespace. The interface is no longer available
+to the host after OpenPERouter takes ownership of it.
+
+Use one interface type per `Underlay` resource. Do not mix `CNIDevice` and
+`NetworkDevice` entries in the same resource.
+--
+
+. Record the underlay values that you will use. The following example uses
+the dedicated bridge values from this assembly:
++
+[source,yaml]
+----
+cluster ASN:            64514
+external router ASN:    64512
+external router IP:     10.200.11.8
+VTEP pool:              100.65.0.0/24
+node underlay addresses: 10.200.11.50/16, 10.200.11.51/16
+----
+
+. If you chose a `CNIDevice`, create an `Underlay` that runs a macvlan on the
+existing parent interface. The following example uses DHCP and a stable MAC
+address on a shared `br-ex`:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.122.15
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: br-ex
+              mode: bridge
+              capabilities:
+                mac: true
+              ipam:
+                type: dhcp
+        runtimeConfig:
+          mac: "aa:bb:cc:00:00:01"
+----
++
+The `interfaceName` value, `net1` in the example, is the name that the
+interface receives inside the router pod. The CNI plugin creates it; no
+`NodeNetworkConfigurationPolicy` is required for this path. If your underlay
+uses a kernel bond instead of `br-ex`, set `master` to the bond name, for
+example `bond1`.
+
+. If you chose a `NetworkDevice`, create the interface on the host and then
+create an `Underlay` that names it. The Linux bridge reference configuration
+uses a macvlan named `ens4mvln` on `ens4`:
++
+[source,terminal]
+----
+$ oc debug node/<worker-node> -- chroot /host \
+    ip link add link ens4 name ens4mvln type macvlan mode bridge
+----
++
+Then create the `Underlay`:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.10.129
+  interfaces:
+    - type: NetworkDevice
+      networkDevice:
+        interfaceName: ens4mvln
+----
+
+. Apply the `Underlay` resource:
++
+[source,terminal]
+----
+$ oc apply -f underlay.yaml
+----
+
+. If the `NetworkDevice` needs a static address, add the address after
+OpenPERouter moves the interface into the `perouter` network namespace:
++
+[source,terminal]
+----
+$ oc get pods -n openperouter-system
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip addr add 192.168.10.100/24 dev ens4mvln
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip link set ens4mvln up
+----
++
+[NOTE]
+====
+Do not create this interface with Kubernetes NMState when OpenPERouter will
+move it into its network namespace. NMState reconciles the interface after the
+move and recreates the host device, which breaks the BGP session. The
+`linux-bridge/test/setup.sh` script creates the macvlan with `ip` commands for
+this reason, then re-adds the static address inside the `perouter` namespace.
+The address added with `ip addr add` is not persisted across a router pod
+restart or a node reboot. For a repeatable deployment, prefer a `CNIDevice`
+with DHCP or configure the address through the mechanism that your platform
+provides.
+====
+
+.Verification
+
+. Confirm that the `Underlay` resource was accepted and that the router pod
+selected a node:
++
+[source,terminal]
+----
+$ oc get underlay -n openperouter-system
+$ oc get pods -n openperouter-system -o wide
+----
+
+. Confirm that the underlay interface has an address inside the router pod:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip addr show net1
+----
++
+For a `NetworkDevice`, replace `net1` with the interface name in the
+`Underlay`, for example `ens4mvln`. The address must be in the underlay subnet
+and must be reachable from the external router.
+
+. Confirm that the VTEP address has been assigned:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip addr show lo
+----
++
+The loopback interface carries an address from the `tunnelEndpoint.cidrs`
+pool.
+
+. If you used NMState to create a bridge or bond, confirm that the policy
+converged on every node:
++
+[source,terminal]
+----
+$ oc get nncp
+$ oc get nnce
+----
++
+Each `NodeNetworkConfigurationPolicy` must report `Available: True`, and each
+`NodeNetworkConfigurationEnactment` must report `Available: True`.

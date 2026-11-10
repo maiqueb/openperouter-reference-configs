@@ -1,0 +1,71 @@
+:_mod-docs-content-type: ASSEMBLY
+[id="virt-connecting-workloads-to-evpn-secondary-networks"]
+= Connecting workloads to an EVPN secondary network with OpenPERouter
+:context: virt-connecting-workloads-to-evpn-secondary-networks
+:oc-first: oc
+
+[role="_abstract"]
+You can connect pods and virtual machines on an OpenShift cluster to an
+external Layer 2 segment by running OpenPERouter on the worker nodes. The
+workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
+external router and its clients can reach the workloads by IP address. After
+you complete this assembly, you have an EVPN/VXLAN secondary network carrying
+workload traffic, using OVN-Kubernetes localnet on a dedicated bridge, a Linux
+bridge, or a shared NIC or bond.
+
+toc::[]
+
+The procedures follow the dependency order of the components: install the
+operators, prepare the node underlay and the external router, define the
+Layer 3 and Layer 2 VNIs, then attach pods and virtual machines.
+
+include::../modules/con-about-openperouter-workload-networking.adoc[leveloffset=+1]
+
+include::../modules/ref-preparation-and-configuration-choices.adoc[leveloffset=+1]
+
+include::../modules/proc-installing-kubernetes-nmstate.adoc[leveloffset=+1]
+
+include::../modules/proc-installing-openperouter.adoc[leveloffset=+1]
+
+include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
+
+include::../modules/proc-configuring-the-external-router.adoc[leveloffset=+1]
+
+include::../modules/con-openperouter-configuration-model.adoc[leveloffset=+1]
+
+include::../modules/proc-configuring-ovn-kubernetes-localnet.adoc[leveloffset=+1]
+
+include::../modules/proc-sharing-a-single-nic-or-bond.adoc[leveloffset=+1]
+
+include::../modules/proc-configuring-a-linux-bridge.adoc[leveloffset=+1]
+
+include::../modules/proc-attaching-a-pod-to-the-evpn-network.adoc[leveloffset=+1]
+
+include::../modules/proc-attaching-a-virtual-machine-to-the-evpn-network.adoc[leveloffset=+1]
+
+include::../modules/ref-example-ovn-kubernetes-localnet.adoc[leveloffset=+1]
+
+include::../modules/ref-example-shared-single-nic.adoc[leveloffset=+1]
+
+include::../modules/ref-example-linux-bridge.adoc[leveloffset=+1]
+
+include::../modules/ref-optional-follow-on-configuration.adoc[leveloffset=+1]
+
+include::../modules/ref-limitations-and-alternatives.adoc[leveloffset=+1]
+
+[role="_additional-resources"]
+[id="additional-resources_{context}"]
+== Additional resources
+
+* link:https://openperouter.github.io/[OpenPERouter project site]
+* link:https://openperouter.github.io/docs/overview/[OpenPERouter overview]
+* link:https://openperouter.github.io/docs/architecture/[OpenPERouter architecture]
+* link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]
+* link:https://openperouter.github.io/docs/api-reference/[OpenPERouter API reference]
+* link:https://github.com/openperouter/openperouter/tree/v0.3.0[OpenPERouter v0.3.0 source]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/networking_operators/k8s-nmstate-about-the-k8s-nmstate-operator[Kubernetes NMState Operator]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks/understanding-multiple-networks[Understanding multiple networks]
+* link:https://github.com/maiqueb/openperouter-reference-configs/tree/main/localnet/dedicated-bridge[Reference configuration: OVN-Kubernetes localnet with a dedicated bridge]
+* link:https://github.com/maiqueb/openperouter-reference-configs/tree/main/localnet/br-ex[Reference configuration: shared single NIC]
+* link:https://github.com/maiqueb/openperouter-reference-configs/tree/main/linux-bridge[Reference configuration: Linux bridge]
+* link:https://github.com/maiqueb/openperouter-reference-configs/blob/main/docs/cclm-migration-analysis.md[CCLM migration packet loss analysis]

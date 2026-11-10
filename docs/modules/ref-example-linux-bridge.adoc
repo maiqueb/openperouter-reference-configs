@@ -1,0 +1,396 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: REFERENCE
+[id="ref-example-linux-bridge_{context}"]
+= Complete example: Linux bridge
+
+[role="_abstract"]
+The following manifests implement the Linux bridge model from `linux-bridge/`:
+a kernel bridge created by Kubernetes NMState, an EVPN L3VNI and L2VNI bound
+to that bridge, a `bridge` NAD for KubeVirt, and two virtual machines with
+static addresses.
+
+The NNCP, NAD, and virtual machine manifests are copied as-is after replacing
+placeholders. The Underlay and VNI manifests are converted from the legacy
+`openpe.openperouter.github.io/v1alpha1` API. The external router pieces are
+included because this path has checked-in results.
+
+== Node network configuration
+
+[source,yaml]
+----
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: linux-bridge-perouter-vni-110
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+      - name: brvni110
+        type: linux-bridge
+        state: up
+        ipv4:
+          enabled: false
+          dhcp: false
+        bridge:
+          options:
+            stp:
+              enabled: false
+----
+
+== Underlay
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/worker: ""
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.10.129
+  interfaces:
+    - type: NetworkDevice
+      networkDevice:
+        interfaceName: ens4mvln
+----
+
+The `ens4mvln` macvlan must exist before OpenPERouter reconciles the
+`Underlay`. The repository test setup creates it with `ip` commands and
+re-adds the static address inside the `perouter` namespace, as described in
+xref:proc-preparing-the-node-underlay_{context}[Preparing the node underlay].
+
+== VNIs and anycast gateway
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L3VNI
+metadata:
+  name: red-100
+  namespace: openperouter-system
+spec:
+  vrf: red
+  vni: 100
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: red-110
+  namespace: openperouter-system
+spec:
+  vni: 110
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: red-100
+  gatewayIPs:
+    - 192.170.1.1/24
+  hostMaster:
+    type: LinuxBridge
+    linuxBridge:
+      lifecycle: External
+      name: brvni110
+----
+
+== Network attachment
+
+[source,yaml]
+----
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: evpn-l2vni-110
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/brvni110
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "evpn-l2vni-110",
+      "type": "bridge",
+      "bridge": "brvni110",
+      "ipam": {},
+      "macspoofchk": false,
+      "preserveDefaultVlan": false,
+      "disableContainerInterface": true
+    }
+----
+
+== Virtual machines
+
+[source,yaml]
+----
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm1
+  namespace: <namespace>
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - evpn-workload
+              topologyKey: kubernetes.io/hostname
+      domain:
+        cpu:
+          cores: 4
+          sockets: 1
+          threads: 1
+        memory:
+          guest: 4Gi
+        devices:
+          disks:
+            - name: os
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - masquerade: {}
+              name: default
+            - bridge: {}
+              macAddress: 02:79:38:33:33:33
+              model: virtio
+              name: evpn
+              state: up
+      networks:
+        - pod: {}
+          name: default
+        - multus:
+            networkName: evpn-l2vni-110
+          name: evpn
+      volumes:
+        - name: os
+          containerDisk:
+            image: quay.io/kubevirt/fedora-with-test-tooling-container-disk:v1.7.0
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                id0:
+                  match:
+                    macaddress: "02:79:38:33:33:33"
+                  addresses:
+                    - 192.170.1.3/24
+                  gateway4: 192.170.1.1
+                  routes:
+                    - to: 192.169.1.0/24
+                      via: 192.170.1.1
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm2
+  namespace: <namespace>
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - evpn-workload
+              topologyKey: kubernetes.io/hostname
+      domain:
+        cpu:
+          cores: 4
+          sockets: 1
+          threads: 1
+        memory:
+          guest: 4Gi
+        devices:
+          disks:
+            - name: os
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+          interfaces:
+            - masquerade: {}
+              name: default
+            - bridge: {}
+              macAddress: 02:79:38:55:55:55
+              model: virtio
+              name: evpn
+              state: up
+      networks:
+        - pod: {}
+          name: default
+        - multus:
+            networkName: evpn-l2vni-110
+          name: evpn
+      volumes:
+        - name: os
+          containerDisk:
+            image: quay.io/kubevirt/fedora-with-test-tooling-container-disk:v1.7.0
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                id0:
+                  match:
+                    macaddress: "02:79:38:55:55:55"
+                  addresses:
+                    - 192.170.1.5/24
+                  gateway4: 192.170.1.1
+                  routes:
+                    - to: 192.169.1.0/24
+                      via: 192.170.1.1
+----
+
+The return route through `192.170.1.1` is required because these virtual
+machines also have the default pod network. Without it, reply traffic to the
+external client can leave through the masquerade interface.
+
+== External router
+
+Build the router image from the `external-router` directory:
+
+[source,terminal]
+----
+$ podman build -t frr-router linux-bridge/external-router
+----
+
+The entry point script creates the VTEP address, the `red` VRF, the L3VNI, and
+the L2VNI:
+
+[source,bash]
+----
+ip addr add 100.64.0.1/32 dev lo
+ip link add red type vrf table 1100
+ip link set eth1 master red
+ip link set red up
+ip link add br100 type bridge
+ip link set br100 master red addrgenmode none
+ip link set br100 addr aa:bb:cc:00:00:65
+ip link add vni100 type vxlan local 100.64.0.1 dstport 4789 id 100 nolearning
+ip link set vni100 master br100 addrgenmode none
+ip link set vni100 type bridge_slave neigh_suppress on learning off
+ip link set vni100 up
+ip link set br100 up
+ip link add vni110 type vxlan local 100.64.0.1 dstport 4789 id 110 nolearning
+ip link add br110 type bridge
+ip link set br110 master red addrgenmode none
+ip link set vni110 master br110
+ip link set vni110 type bridge_slave neigh_suppress on learning off
+ip link set vni110 up
+ip link set br110 up
+ip addr add 192.170.1.100/24 dev br110
+----
+
+The FRR configuration peers with the cluster over `192.168.10.0/24`:
+
+[source,frr]
+----
+vrf red
+ vni 100
+exit-vrf
+
+router bgp 64512 vrf red
+ address-family ipv4 unicast
+  redistribute connected
+ exit-address-family
+ address-family l2vpn evpn
+  advertise ipv4 unicast
+  advertise ipv6 unicast
+ exit-address-family
+exit
+
+router bgp 64512
+ no bgp ebgp-requires-policy
+ no bgp network import-check
+ no bgp default ipv4-unicast
+ neighbor ocp-nodes peer-group
+ neighbor ocp-nodes remote-as 64514
+ bgp listen range 192.168.10.0/24 peer-group ocp-nodes
+ address-family ipv4 unicast
+  network 100.64.0.1/32
+  neighbor ocp-nodes activate
+ exit-address-family
+ address-family l2vpn evpn
+  neighbor ocp-nodes activate
+  neighbor ocp-nodes allowas-in origin
+  advertise-all-vni
+  advertise-svi-ip
+ exit-address-family
+exit
+----
+
+== Verification
+
+The repository test sequence is:
+
+[source,terminal]
+----
+$ ./test/setup.sh
+$ ./test/test.sh
+$ ./results/gen-router-reports.sh
+----
+
+The tests check bidirectional connectivity between the two virtual machines,
+between each virtual machine and the external router `br110` address
+`192.170.1.100`, and between each virtual machine and the external client. To
+verify the EVPN control plane directly:
+
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    vtysh -c 'show evpn vni'
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    vtysh -c 'show bgp l2vpn evpn route type 2'
+$ podman exec frr vtysh -c 'show bgp l2vpn evpn summary'
+----
+
+The expected VNI state is recorded in `linux-bridge/results/worker-0.md`: VNI
+110 as `L2` in VRF `red` with SVI `br-pe-110` and address `192.170.1.1/24`,
+and VNI 100 as `L3` in VRF `red`.
+
+== Teardown
+
+[source,terminal]
+----
+$ oc delete vm vm1 vm2 -n <namespace>
+$ oc delete network-attachment-definition evpn-l2vni-110 -n <namespace>
+$ oc delete l2vni red-110 l3vni red-100 -n openperouter-system
+$ oc delete underlay underlay -n openperouter-system
+$ oc delete nncp linux-bridge-perouter-vni-110
+$ podman rm -f frr
+----
+
+Deleting the NNCP removes `brvni110`. Any virtual machine that still uses the
+NAD must be deleted first.

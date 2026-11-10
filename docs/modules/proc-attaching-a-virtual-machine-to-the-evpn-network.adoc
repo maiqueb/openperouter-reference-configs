@@ -1,0 +1,234 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-attaching-a-virtual-machine-to-the-evpn-network_{context}"]
+= Attaching a virtual machine to the EVPN network
+
+[role="_abstract"]
+Attach a KubeVirt virtual machine to the EVPN workload segment with a Multus
+network and a bridge interface, and configure the guest address with
+cloud-init. The network attachment and the MAC address rules depend on whether
+you use OVN-Kubernetes localnet or a Linux bridge.
+
+.Prerequisites
+
+* OpenShift Virtualization is installed and a `HyperConverged` instance is
+  available.
+* You have created a network attachment for the chosen model:
+  ** An OVN-Kubernetes localnet NAD from the dedicated bridge or shared single
+  NIC procedure.
+  ** The `bridge` NAD from the Linux bridge procedure.
+* The NAD is in the same namespace as the virtual machine, or the VM uses the
+  fully qualified `<namespace>/<name>` form.
+* You have a container disk image and, optionally, an SSH key secret.
+* The virtual machines can be scheduled on nodes that run the OpenPERouter
+  router pod.
+
+.Procedure
+
+. Create the virtual machine with a Multus network and a bridge interface.
+The following skeleton applies to both models:
++
+[source,yaml]
+----
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm-1
+  namespace: <namespace>
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      domain:
+        devices:
+          interfaces:
+            - bridge: {}
+              name: evpn
+          disks:
+            - name: containerdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+      networks:
+        - multus:
+            networkName: <nad-name>
+          name: evpn
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: <containerdisk-image>
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                eth0:
+                  addresses:
+                    - 192.170.1.3/24
+                  gateway4: 192.170.1.1
+----
+
+. For an OVN-Kubernetes localnet attachment, set `networkName` to the localnet
+NAD and use only the gateway in the guest configuration:
++
+[source,yaml]
+----
+      networks:
+        - multus:
+            networkName: evpn
+          name: evpn
+----
++
+MAC spoof checking is always enabled for the KubeVirt localnet path. Do not
+configure a guest MAC address that differs from the MAC that OVN-Kubernetes
+assigns to the pod interface. For the same reason, do not enable promiscuous
+mode in the guest. If you need a fixed MAC address, use the Linux bridge
+model instead.
+
+. For a Linux bridge attachment, set `networkName` to the `bridge` NAD, set a
+fixed MAC address on the interface, and match that MAC address in the
+cloud-init network data:
++
+[source,yaml]
+----
+      domain:
+        devices:
+          interfaces:
+            - bridge: {}
+              macAddress: 02:79:38:33:33:33
+              model: virtio
+              name: evpn
+              state: up
+      networks:
+        - multus:
+            networkName: evpn-l2vni-110
+          name: evpn
+      volumes:
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                id0:
+                  match:
+                    macaddress: "02:79:38:33:33:33"
+                  addresses:
+                    - 192.170.1.3/24
+                  gateway4: 192.170.1.1
+----
++
+The `macspoofchk: false` setting in the Linux bridge NAD allows the guest to
+keep this MAC address.
+
+. If the virtual machine also has the default pod network with masquerade
+binding, add a return route for the external client network through the EVPN
+gateway:
++
+[source,yaml]
+----
+                id0:
+                  match:
+                    macaddress: "02:79:38:33:33:33"
+                  addresses:
+                    - 192.170.1.3/24
+                  gateway4: 192.170.1.1
+                  routes:
+                    - to: 192.169.1.0/24
+                      via: 192.170.1.1
+----
++
+Without this route, reply traffic to the external client can follow the
+default route on the pod network instead of the EVPN interface. If the EVPN
+interface is the only interface, or if it is the default route, the return
+route is not required.
+
+. Schedule the virtual machines on different nodes so that the path uses
+VXLAN. Use `nodeSelector` or pod anti-affinity:
++
+[source,yaml]
+----
+      nodeSelector:
+        kubernetes.io/hostname: <worker-node-1>
+----
++
+or:
++
+[source,yaml]
+----
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - evpn-workload
+              topologyKey: kubernetes.io/hostname
+----
+
+. Apply the virtual machine and wait for it to start:
++
+[source,terminal]
+----
+$ oc apply -f vm.yaml
+$ oc wait vm/vm-1 -n <namespace> \
+    --for=condition=Ready --timeout=10m
+$ oc wait vmi/vm-1 -n <namespace> \
+    --for=condition=AgentConnected --timeout=10m
+----
+
+.Verification
+
+. Confirm that the guest received the address:
++
+[source,terminal]
+----
+$ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
+    ip addr show
+----
++
+The EVPN interface must have the static address and the gateway from the
+cloud-init data.
+
+. Confirm connectivity to a peer virtual machine on the other node:
++
+[source,terminal]
+----
+$ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
+    ping -c 3 192.170.1.5
+----
+
+. Confirm connectivity to the external router and, if configured, the
+external client:
++
+[source,terminal]
+----
+$ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
+    ping -c 3 192.170.1.100
+$ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
+    ping -c 3 192.169.1.25
+----
+
+. Confirm that the external router sees the virtual machine MAC and IP:
++
+[source,terminal]
+----
+$ podman exec frr vtysh -c 'show bgp l2vpn evpn route type 2'
+----
++
+The Type-2 route table must contain the virtual machine MAC address and its
+IP address binding.
+
+[NOTE]
+====
+The `capabilities.mac` and `runtimeConfig.mac` settings belong to the
+`Underlay` `CNIDevice` configuration. They select the MAC address of the
+underlay macvlan that OpenPERouter uses for BGP; they do not set the MAC
+address of a virtual machine interface.
+====
