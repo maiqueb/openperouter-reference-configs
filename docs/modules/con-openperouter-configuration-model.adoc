@@ -168,10 +168,9 @@ fabric.
 `OVSBridge` or `LinuxBridge`, and set the matching `ovsBridge` or
 `linuxBridge` object.
 
-`spec.hostMaster.<type>.lifecycle`:: `External` when the bridge already exists
-and another component owns it, for example a `NodeNetworkConfigurationPolicy`
-or OVN-Kubernetes.
-The field is required.
+`spec.hostMaster.<type>.lifecycle`:: `External` is the only supported value.
+The bridge must already exist and be owned by another component, for example a
+`NodeNetworkConfigurationPolicy` or OVN-Kubernetes. The field is required.
 
 `spec.hostMaster.<type>.name`:: The bridge name. Required.
 

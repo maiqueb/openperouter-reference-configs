@@ -323,8 +323,8 @@ node interface or bridge.
 
 |No equivalent
 |`hostMaster.ovsBridge.lifecycle` or `hostMaster.linuxBridge.lifecycle`
-|Required in v0.3.0. Use `External` when a `NodeNetworkConfigurationPolicy`
-or OVN-Kubernetes owns the bridge.
+|Required in v0.3.0. `External` is the only supported value; the bridge is
+owned by a `NodeNetworkConfigurationPolicy` or OVN-Kubernetes.
 
 |`spec.l2gatewayips`
 |`spec.gatewayIPs`

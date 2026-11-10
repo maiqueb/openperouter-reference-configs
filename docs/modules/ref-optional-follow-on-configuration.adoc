@@ -8,9 +8,8 @@
 
 [role="_abstract"]
 After the basic EVPN secondary network works, you can add inter-subnet
-routing, more Layer 2 segments, dual-stack addressing, OpenPERouter-managed
-bridges, and fabric tuning. The features in this section are optional and have
-different support requirements.
+routing, more Layer 2 segments, dual-stack addressing, and fabric tuning. The
+features in this section are optional and have different support requirements.
 
 == Inter-subnet and external routing
 
@@ -103,42 +102,6 @@ spec:
 The underlay and the external router must also support the address family.
 The reference environment uses kernel 5.18 or later for full IPv6 EVPN
 support.
-
-== OpenPERouter-managed bridges
-
-Set `lifecycle: Managed` when OpenPERouter should create the bridge instead of
-attaching to an existing one. Omit `name`; OpenPERouter names the bridge after
-the VNI:
-
-[source,yaml]
-----
-apiVersion: network.openperouter.io/v1alpha1
-kind: L2VNI
-metadata:
-  name: migration-net
-  namespace: openperouter-system
-spec:
-  hostMaster:
-    type: LinuxBridge
-    linuxBridge:
-      lifecycle: Managed
-  gatewayIPs:
-    - 192.170.10.1/24
-  vni: 666
-  routingDomain:
-    type: L3VNI
-    l3vni:
-      name: rouge
-----
-
-This example is based on
-`localnet/br-ex/migration-networks/l2vni.yaml` and creates the bridge
-`br-hs-666`. The same file creates the `rouge` L3VNI, with VNI 777 and VRF
-`rouge`, that the `routingDomain` references.
-
-A managed bridge is convenient for a network that no other component owns. Do
-not use `Managed` for a bridge that OVN-Kubernetes or a
-`NodeNetworkConfigurationPolicy` owns.
 
 == EVPN and top-of-rack tuning
 
