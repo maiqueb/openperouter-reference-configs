@@ -14,8 +14,9 @@ L2VNI provides the EVPN stretch and the anycast gateway.
 .Prerequisites
 
 * The Kubernetes NMState Operator and OpenPERouter are installed.
-* You have at least two worker nodes with a dedicated NIC or bond for the
-  underlay.
+* The worker nodes that run OpenPERouter have a dedicated NIC or bond for the
+  underlay. The procedure works on a single-node cluster and on clusters with
+  multiple nodes.
 * The external router is configured and reachable from the node underlay
   addresses.
 * You have decided on the VNI identifiers, workload subnet, and gateway
