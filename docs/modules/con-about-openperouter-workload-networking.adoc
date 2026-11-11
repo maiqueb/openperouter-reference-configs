@@ -79,9 +79,30 @@ Multus, OVN-Kubernetes, or another CNI plugin attaches a pod or virtual machine
 to an additional network.
 
 ClusterUserDefinedNetwork (CUDN) and UserDefinedNetwork (UDN):: OVN-Kubernetes
-resources that define additional networks. A Layer 2 CUDN or UDN can use a
-localnet physical network in the same way as a localnet NAD.
+resources that define additional networks. A CUDN with the `Localnet` topology
+connects workloads to a physical or logical network through an OVS bridge
+mapping, and OVN-Kubernetes creates a `NetworkAttachmentDefinition` for it in
+each selected namespace.
 
+== When to use OpenPERouter
+
+Use OpenPERouter when at least one of the following requirements applies:
+
+* Workloads must be on the same Layer 2 subnet as external systems, and that
+  subnet must be stretched across nodes or clusters.
+* The external fabric uses BGP and EVPN, and the cluster must participate in
+  that fabric rather than be reachable only through a single gateway.
+* The workloads gateway configuration must be stable (same MAC & IP) across all
+  nodes.
+* Tenant networks must be isolated in separate VRFs while sharing the same
+  physical underlay.
+
+Do not use OpenPERouter as a general-purpose pod network. The cluster network
+provider still provides the default pod network, service networking, and
+network policy for the default network. OpenPERouter adds a secondary network
+path.
+
+[id="workload-attachment-models_{context}"]
 == Workload attachment models
 
 OpenPERouter does not create the attachment between a workload and the
@@ -92,9 +113,10 @@ attachment, and then bind the bridge to OpenPERouter with an L2VNI
 OVN-Kubernetes localnet with a dedicated bridge:: OVN-Kubernetes owns an OVS
 bridge such as `ovsbr1`. A `NodeNetworkConfigurationPolicy` creates the bridge
 and adds the OVN bridge mapping `datanet:ovsbr1`. Workloads attach through a
-NAD of type `ovn-k8s-cni-overlay` with `topology: localnet`. OpenPERouter
-attaches its L2VNI to the same bridge with `hostMaster.type: OVSBridge` and
-`lifecycle: External`. Pods and virtual machines are both supported.
+`ClusterUserDefinedNetwork` with `topology: Localnet` and
+`localnet.physicalNetworkName: datanet`. OpenPERouter attaches its L2VNI to
+the same bridge with `hostMaster.type: OVSBridge` and `lifecycle: External`.
+Pods and virtual machines are both supported.
 
 Shared single NIC or bond:: The node has one NIC or bond, and OVN-Kubernetes
 already uses it for the default cluster network through `br-ex`. OpenPERouter
@@ -111,30 +133,6 @@ LinuxBridge` and `lifecycle: External`. Workloads attach through a NAD of type
 annotation. In the reference configuration, this NAD sets
 `disableContainerInterface: true`, so it is intended for virtual machines, not
 for pods.
-
-The OVN-Kubernetes integration is an OpenShift-side pattern built on the
-OpenPERouter `hostMaster` and `CNIDevice` extension points. Upstream
-OpenPERouter documents those extension points, but it does not prescribe a
-complete OVN-Kubernetes recipe. Treat the manifests in this repository as
-working reference configurations that you adapt to your cluster.
-
-== When to use OpenPERouter
-
-Use OpenPERouter when at least one of the following requirements applies:
-
-* Workloads must be on the same Layer 2 subnet as external systems, and that
-  subnet must be stretched across nodes or clusters.
-* The external fabric uses BGP and EVPN, and the cluster must participate in
-  that fabric rather than be reachable only through a single gateway.
-* Workloads need a gateway that follows them across nodes without changing
-  their IP configuration.
-* Tenant networks must be isolated in separate VRFs while sharing the same
-  physical underlay.
-
-Do not use OpenPERouter as a general-purpose pod network. The cluster network
-provider still provides the default pod network, service networking, and
-network policy for the default network. OpenPERouter adds a secondary network
-path.
 
 [role="_additional-resources"]
 == Additional resources

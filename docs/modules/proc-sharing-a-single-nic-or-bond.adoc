@@ -180,46 +180,35 @@ Apply the converted resources:
 $ oc apply -f openperouter-vnis.yaml
 ----
 
-. Create the localnet NAD. The `physicalNetworkName` value must match the
-mapping from step 2:
+. Create the localnet `ClusterUserDefinedNetwork`. The
+`localnet.physicalNetworkName` value must match the mapping from step 2:
 +
 [source,yaml]
 ----
-apiVersion: k8s.cni.cncf.io/v1
-kind: NetworkAttachmentDefinition
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
 metadata:
   name: evpn
-  namespace: evpn-localnet-test
 spec:
-  config: |
-    {
-      "cniVersion": "0.3.1",
-      "name": "evpn",
-      "type": "ovn-k8s-cni-overlay",
-      "topology": "localnet",
-      "netAttachDefName": "evpn-localnet-test/evpn",
-      "physicalNetworkName": "datanet"
-    }
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: evpn-localnet-test
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: datanet
+      ipam:
+        mode: Disabled
 ----
++
+The OVN-Kubernetes controller creates a `NetworkAttachmentDefinition` named
+`evpn` in the `evpn-localnet-test` namespace. `ipam.mode: Disabled` leaves IP
+configuration to the workloads.
 
-. For the VLAN trunk variant, create one localnet network per VLAN. A NAD
-uses the top-level `vlanID` key:
-+
-[source,json]
-----
-{
-  "cniVersion": "0.3.1",
-  "name": "evpn-vlan-200",
-  "type": "ovn-k8s-cni-overlay",
-  "topology": "localnet",
-  "netAttachDefName": "default/evpn-vlan-200",
-  "physicalNetworkName": "physnet",
-  "vlanID": 200
-}
-----
-+
-A `ClusterUserDefinedNetwork` expresses the same access VLAN under
-`layer2.vlan`:
+. For the VLAN trunk variant, create one localnet network per VLAN. Use a
+`ClusterUserDefinedNetwork` with the `Localnet` topology and set the access
+VLAN under `localnet.vlan`:
 +
 [source,yaml]
 ----
@@ -232,15 +221,22 @@ spec:
     matchLabels:
       kubernetes.io/metadata.name: <namespace>
   network:
-    topology: Layer2
-    layer2:
+    topology: Localnet
+    localnet:
       role: Secondary
       physicalNetworkName: physnet
       vlan:
         mode: Access
         access:
           id: 200
+      ipam:
+        mode: Disabled
 ----
++
+`ipam.mode: Disabled` leaves addressing to the workloads. To let
+OVN-Kubernetes assign addresses, omit `ipam` and set `localnet.subnets` to
+the VLAN subnet. To use a DHCP server on the VLAN, set `ipam.mode: DHCP` and
+omit `subnets`.
 +
 OVN-Kubernetes does not support a trunk-mode attachment. Each VLAN is a
 separate network. The `physicalNetworkName` value must match an existing
@@ -249,33 +245,55 @@ bridge mapping; the default OVN-Kubernetes mapping usually contains
 
 .Verification
 
-. Confirm that the OVS bridges and mappings are correct:
+. Confirm that the `NodeNetworkConfigurationPolicy` reports that the secondary
+bridge and its bridge mapping were applied on every node:
 +
 [source,terminal]
 ----
-$ oc debug node/<worker-node> -- chroot /host ovs-vsctl show
-$ oc debug node/<worker-node> -- chroot /host \
-    ovs-vsctl get open . external_ids:ovn-bridge-mappings
+$ oc get nncp localnet-dedicated-bridge -o yaml
+$ oc get nnce -l nmstate.io/policy=localnet-dedicated-bridge -o yaml
 ----
 +
-The mapping must contain `datanet:ovsbr1` and `physnet:br-ex`. `br-ex` keeps
-its uplink and its OVN-Kubernetes patch port. `ovsbr1` has no uplink; it has
-its internal port, the OVN-Kubernetes patch port, and the OpenPERouter veth
-port for VNI 110.
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and `Degraded` must be `False`. Each enactment, one
+per matching node, must report `Available: True`. An available policy means
+that NMState applied the `ovsbr1` bridge and the `datanet:ovsbr1` mapping.
+The policy does not modify the OVN-Kubernetes-owned `physnet:br-ex` mapping.
+If the policy is degraded, the `message` of the enactment whose `Failing`
+condition is `True` reports the node error.
 
-. Confirm that the underlay interface in the router pod is `net1`, not
-`macvlan0`:
+. Confirm that OpenPERouter accepted the `Underlay` and the VNIs by reading the
+node status:
 +
 [source,terminal]
 ----
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
-    ip addr show net1
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
++
+Each node must show `READY` as `True` and `DEGRADED` as `False`, with the
+`Ready` condition `True` and an empty `status.failedResources`. When the status
+is healthy, the CNI plugin created the underlay interface `net1` from the
+`Underlay` raw configuration.
 +
 The repository also contains `02-macvlan-underlay.yaml`, which creates a
 host macvlan named `macvlan0` on `br-ex`. That policy is optional for the
 current `CNIDevice` path. The interface that OpenPERouter uses is `net1`,
 which the CNI plugin creates from the `Underlay` raw configuration.
+
+. For each `ClusterUserDefinedNetwork` that you created, confirm that its
+status reports that OVN-Kubernetes created the network attachment:
++
+[source,terminal]
+----
+$ oc get clusteruserdefinednetwork <cudn-name> -o yaml
+----
++
+The `NetworkCreated` condition in `status.conditions` must be `True` with
+reason `NetworkAttachmentDefinitionCreated`. Its `message` lists the
+namespaces that received the generated `NetworkAttachmentDefinition`. Check
+`evpn-vlan-200` as well if you created the VLAN trunk network. If the
+condition is `False`, the `reason` and `message` describe the failure, for
+example `NetworkAttachmentDefinitionSyncError`.
 
 . Confirm that the BGP session to the external router is established:
 +

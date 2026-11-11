@@ -17,11 +17,13 @@ you use OVN-Kubernetes localnet or a Linux bridge.
 * OpenShift Virtualization is installed and a `HyperConverged` instance is
   available.
 * You have created a network attachment for the chosen model:
-  ** An OVN-Kubernetes localnet NAD from the dedicated bridge or shared single
-  NIC procedure.
+  ** An OVN-Kubernetes localnet `ClusterUserDefinedNetwork` from the dedicated
+  bridge or shared single NIC procedure.
   ** The `bridge` NAD from the Linux bridge procedure.
-* The NAD is in the same namespace as the virtual machine, or the VM uses the
-  fully qualified `<namespace>/<name>` form.
+* For the OVN-Kubernetes localnet model, the `ClusterUserDefinedNetwork`
+  `namespaceSelector` matches the virtual machine namespace. OVN-Kubernetes
+  creates a `NetworkAttachmentDefinition` with the same name in that
+  namespace.
 * You have a container disk image and, optionally, an SSH key secret.
 * The virtual machines can be scheduled on nodes that run the OpenPERouter
   router pod.
@@ -73,8 +75,10 @@ spec:
                   gateway4: 192.170.1.1
 ----
 
-. For an OVN-Kubernetes localnet attachment, set `networkName` to the localnet
-NAD and use only the gateway in the guest configuration:
+. For an OVN-Kubernetes localnet attachment, set `networkName` to the
+`NetworkAttachmentDefinition` that OVN-Kubernetes created for the
+`ClusterUserDefinedNetwork`, and use only the gateway in the guest
+configuration:
 +
 [source,yaml]
 ----
@@ -147,8 +151,9 @@ default route on the pod network instead of the EVPN interface. If the EVPN
 interface is the only interface, or if it is the default route, the return
 route is not required.
 
-. Schedule the virtual machines on different nodes so that the path uses
-VXLAN. Use `nodeSelector` or pod anti-affinity:
+. If the cluster has more than one node, schedule the virtual machines on
+different nodes so that the path uses VXLAN. On a single-node cluster, the
+workload stays on the local bridge. Use `nodeSelector` or pod anti-affinity:
 +
 [source,yaml]
 ----
@@ -196,7 +201,8 @@ $ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
 The EVPN interface must have the static address and the gateway from the
 cloud-init data.
 
-. Confirm connectivity to a peer virtual machine on the other node:
+. If you scheduled a peer virtual machine on another node, confirm
+connectivity to it:
 +
 [source,terminal]
 ----

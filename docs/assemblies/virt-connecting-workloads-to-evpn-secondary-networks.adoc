@@ -11,7 +11,8 @@ workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
 external router and its clients can reach the workloads by IP address. When you
 follow this guide, you create an EVPN/VXLAN secondary network carrying
 workload traffic across this extended layer 2 segment, using any of the
-following physical network options:
+physical network options described in
+xref:workload-attachment-models_{context}[Workload attachment models]:
 
 * OVN-Kubernetes localnet topology on a dedicated bridge
 * OVN-Kubernetes localnet topology sharing `br-ex`
@@ -31,11 +32,9 @@ include::../modules/proc-installing-kubernetes-nmstate.adoc[leveloffset=+1]
 
 include::../modules/proc-installing-openperouter.adoc[leveloffset=+1]
 
-include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
-
-include::../modules/proc-configuring-the-external-router.adoc[leveloffset=+1]
-
 include::../modules/con-openperouter-configuration-model.adoc[leveloffset=+1]
+
+include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
 
 include::../modules/proc-configuring-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 
@@ -43,17 +42,11 @@ include::../modules/proc-sharing-a-single-nic-or-bond.adoc[leveloffset=+1]
 
 include::../modules/proc-configuring-a-linux-bridge.adoc[leveloffset=+1]
 
-include::../modules/proc-attaching-a-pod-to-the-evpn-network.adoc[leveloffset=+1]
-
 include::../modules/proc-attaching-a-virtual-machine-to-the-evpn-network.adoc[leveloffset=+1]
 
 include::../modules/ref-example-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 
-include::../modules/ref-example-shared-single-nic.adoc[leveloffset=+1]
-
 include::../modules/ref-example-linux-bridge.adoc[leveloffset=+1]
-
-include::../modules/ref-optional-follow-on-configuration.adoc[leveloffset=+1]
 
 include::../modules/ref-limitations-and-alternatives.adoc[leveloffset=+1]
 

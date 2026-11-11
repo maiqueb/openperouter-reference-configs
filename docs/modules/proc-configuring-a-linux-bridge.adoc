@@ -102,13 +102,11 @@ spec:
 +
 The CNI plugin creates the macvlan in the router pod on top of the node
 interface, which stays in the host network namespace. The example selects one
-node; repeat it for each worker node and give each node a unique address. If
-the parent is an OVS bridge, attach the device to an OVS internal interface
-instead. To share the MAC address of the parent, use an `ipvlan` plugin
+node; repeat it for each worker node and give each node a unique address.
+To share the MAC address of the parent, use an `ipvlan` plugin
 instead of `macvlan`.
 +
-The source file `linux-bridge/01-openperouter-underlay.yaml` uses the legacy
-API. Apply the converted resource:
+Apply the resource:
 +
 [source,terminal]
 ----
@@ -149,8 +147,7 @@ spec:
       name: brvni110
 ----
 +
-The source file `linux-bridge/02-openperouter-vnis.yaml` uses the legacy API.
-Apply the converted resources:
+Apply the resources:
 +
 [source,terminal]
 ----
@@ -192,15 +189,20 @@ $ oc apply -f 03-vni-linux-bridge-nad.yaml
 
 .Verification
 
-. Confirm that OpenPERouter created the VNI objects:
+. Confirm that OpenPERouter accepted the VNI objects by reading the node
+status:
 +
 [source,terminal]
 ----
-$ oc get l2vni red-110 -n openperouter-system -o yaml
-$ oc get l3vni red-100 -n openperouter-system -o yaml
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
 +
-The L2VNI status must report that the node configuration is ready.
+Each node must show `READY` as `True` and `DEGRADED` as `False`, with the
+`Ready` condition `True` and an empty `status.failedResources`. This confirms
+that OpenPERouter applied the L3VNI and the L2VNI, and that it attached
+`br-pe-110` to the `brvni110` bridge. If a resource fails, read the status of
+the affected node with `oc get routernodeconfigurationstatus <node-name> -n
+openperouter-system -o yaml`.
 
 . Confirm the EVPN state in the router pod:
 +
@@ -229,22 +231,23 @@ $ oc exec -n openperouter-system <router-pod> -c frr -- \
 The `br-pe-110` interface carries the anycast gateway address
 `192.170.1.1/24`.
 
-. Confirm that the kernel bridge exists on the node and has the OpenPERouter
-veth port:
+. Confirm that the `NodeNetworkConfigurationPolicy` reports that the kernel
+bridge was created on every node:
 +
 [source,terminal]
 ----
-$ oc debug node/<worker-node> -- chroot /host \
-    bridge link show dev brvni110
+$ oc get nncp linux-bridge-perouter-vni-110 -o yaml
+$ oc get nnce -l nmstate.io/policy=linux-bridge-perouter-vni-110 -o yaml
 ----
-
-[NOTE]
-====
-The `disableContainerInterface: true` setting means that pods do not receive
-a usable interface from this NAD. This NAD is intended for KubeVirt virtual
-machines. Pods on this network require a different NAD configuration, and
-the Linux bridge model in this repository does not provide one.
-====
++
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and `Degraded` must be `False`. Each enactment, one
+per matching node, must report `Available: True`; an available policy means
+that the `brvni110` bridge exists on the node. If the policy is degraded, the
+`message` of the enactment whose `Failing` condition is `True` reports the
+node error. OpenPERouter attaches its veth port to the bridge when it creates
+the L2VNI; the L2VNI status from the first verification step reports that
+state.
 
 [role="_additional-resources"]
 == Additional resources

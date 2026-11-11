@@ -9,11 +9,14 @@
 [role="_abstract"]
 The following manifests implement the dedicated bridge model: a kernel bond
 for the underlay, an OVS bridge for the OVN-Kubernetes localnet, an EVPN L2VNI
-and L3VNI, a localnet NAD, and two virtual machines on different nodes.
+and L3VNI, a localnet `ClusterUserDefinedNetwork`, and two virtual machines on
+different nodes.
 
-The NNCP, NAD, and virtual machine manifests are based on
+The NNCP and virtual machine manifests are based on
 `localnet/dedicated-bridge/` and are usable as-is after you replace the node
-names and addresses. The OpenPERouter resources are converted from the legacy
+names and addresses. The network attachment is expressed as a
+`ClusterUserDefinedNetwork`, so OVN-Kubernetes creates the corresponding
+`NetworkAttachmentDefinition`. The OpenPERouter resources are converted from the legacy
 `openpe.openperouter.github.io/v1alpha1` API to
 `network.openperouter.io/v1alpha1`. The external router configuration is
 adapted from `linux-bridge/external-router/` because the dedicated bridge
@@ -190,22 +193,29 @@ spec:
 
 [source,yaml]
 ----
-apiVersion: k8s.cni.cncf.io/v1
-kind: NetworkAttachmentDefinition
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
 metadata:
   name: evpn
-  namespace: default
 spec:
-  config: |
-    {
-      "cniVersion": "0.3.1",
-      "name": "evpn",
-      "type": "ovn-k8s-cni-overlay",
-      "topology": "localnet",
-      "netAttachDefName": "default/evpn",
-      "physicalNetworkName": "datanet"
-    }
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: default
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: datanet
+      ipam:
+        mode: Disabled
 ----
+
+`ipam.mode: Disabled` makes OVN-Kubernetes assign only a MAC address and
+leave IP configuration to the workload. The virtual machines below set their
+own static addresses through cloud-init, and OpenPERouter provides the anycast
+gateway. The OVN-Kubernetes controller creates a
+`NetworkAttachmentDefinition` named `evpn` in the `default` namespace, so the
+`default/evpn` network name in the virtual machine manifests still applies.
 
 == Virtual machines
 
@@ -302,86 +312,14 @@ spec:
                   gateway4: 192.170.1.1
 ----
 
-Do not set a custom MAC address in these virtual machines. OVN-Kubernetes
-assigns the pod interface MAC, and the localnet path enforces MAC spoof
-checking.
-
-== External router, adapted
-
-The dedicated bridge directory has no router artifact. The following
-configuration is adapted from `linux-bridge/external-router/network-setup.sh`.
-It creates the VTEP loopback, the `red` VRF, the L3VNI, and the VXLAN
-interfaces:
-
-[source,bash]
-----
-ip addr add 100.64.0.1/32 dev lo
-ip link add red type vrf table 1100
-ip link set <external-client-nic> master red
-ip link set red up
-
-ip link add br100 type bridge
-ip link set br100 master red addrgenmode none
-ip link set br100 addr aa:bb:cc:00:00:65
-ip link add vni100 type vxlan local 100.64.0.1 dstport 4789 id 100 nolearning
-ip link set vni100 master br100 addrgenmode none
-ip link set vni100 type bridge_slave neigh_suppress on learning off
-ip link set vni100 up
-ip link set br100 up
-
-ip link add vni110 type vxlan local 100.64.0.1 dstport 4789 id 110 nolearning
-ip link add br110 type bridge
-ip link set br110 master red addrgenmode none
-ip link set vni110 master br110
-ip link set vni110 type bridge_slave neigh_suppress on learning off
-ip link set vni110 up
-ip link set br110 up
-ip addr add 192.170.1.100/24 dev br110
-----
-
-The adapted FRR configuration peers with the cluster over `10.200.0.0/16`:
-
-[source,frr]
-----
-vrf red
- vni 100
-exit-vrf
-
-router bgp 64512 vrf red
- address-family ipv4 unicast
-  redistribute connected
- exit-address-family
- address-family l2vpn evpn
-  advertise ipv4 unicast
-  advertise ipv6 unicast
- exit-address-family
-exit
-
-router bgp 64512
- no bgp ebgp-requires-policy
- no bgp network import-check
- no bgp default ipv4-unicast
- neighbor ocp-nodes peer-group
- neighbor ocp-nodes remote-as 64514
- bgp listen range 10.200.0.0/16 peer-group ocp-nodes
- address-family ipv4 unicast
-  network 100.64.0.1/32
-  neighbor ocp-nodes activate
- exit-address-family
- address-family l2vpn evpn
-  neighbor ocp-nodes activate
-  neighbor ocp-nodes allowas-in origin
-  advertise-all-vni
-  advertise-svi-ip
- exit-address-family
-exit
-----
-
 == Verification
 
 [source,terminal]
 ----
-$ oc get underlay,l3vni,l2vni -n openperouter-system
+$ oc get nncp dedicated-linux-bond-iface -o yaml
+$ oc get nnce -l nmstate.io/policy=dedicated-linux-bond-iface -o yaml
+$ oc get clusteruserdefinednetwork evpn -o yaml
+$ oc get routernodeconfigurationstatus -n openperouter-system
 $ oc exec -n openperouter-system <router-pod> -c frr -- \
     vtysh -c 'show evpn vni'
 $ oc exec -n openperouter-system <router-pod> -c frr -- \
@@ -389,19 +327,10 @@ $ oc exec -n openperouter-system <router-pod> -c frr -- \
 $ podman exec frr vtysh -c 'show bgp l2vpn evpn summary'
 ----
 
-== Teardown
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and each enactment must report `Available: True`.
+In `status.conditions` of the `ClusterUserDefinedNetwork`, `NetworkCreated`
+must be `True` with reason `NetworkAttachmentDefinitionCreated`. Each
+`RouterNodeConfigurationStatus` must show `READY` as `True` and `DEGRADED` as
+`False`, with an empty `status.failedResources`.
 
-Delete the workloads and attachments first, then the VNIs, the Underlay, and
-the NNCP:
-
-[source,terminal]
-----
-$ oc delete vm vm-1 vm-2 -n default
-$ oc delete network-attachment-definition evpn -n default
-$ oc delete l2vni layer2 l3vni red -n openperouter-system
-$ oc delete underlay underlay-worker0 underlay-worker1 -n openperouter-system
-$ oc delete nncp dedicated-linux-bond-iface
-----
-
-Deleting the NNCP removes `ovsbr1` and the bridge mapping from the nodes.
-Confirm that no workload still uses the bridge before you delete the policy.
