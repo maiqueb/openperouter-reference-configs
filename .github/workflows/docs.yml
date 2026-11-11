@@ -38,13 +38,11 @@ jobs:
       - name: Render guides to HTML
         run: bundle exec ./hack/build-docs.sh
 
+      # Pages must be enabled once in Settings > Pages > Build and deployment
+      # > Source: GitHub Actions. The workflow token cannot create the Pages
+      # site itself, so do not pass `enablement: true` here.
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
-        with:
-          # Creates the Pages site on the first run. If this step fails with a
-          # permission error, enable Pages manually under Settings > Pages >
-          # Build and deployment > Source: GitHub Actions.
-          enablement: true
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
