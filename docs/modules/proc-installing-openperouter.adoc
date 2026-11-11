@@ -7,101 +7,21 @@
 = Installing OpenPERouter
 
 [role="_abstract"]
-Install the OpenPERouter v0.3.0 controller, custom resource definitions, and
-per-node router pods in the `openperouter-system` namespace. On OpenShift
-Container Platform, the router pods require the privileged security context
-constraint.
+**TODO**
 
 .Prerequisites
 
-* You have cluster-admin access to the cluster.
-* You have the `oc` CLI.
-* The cluster uses CRI-O as its container runtime, which is the default on
-  OpenShift Container Platform.
-* The cluster can pull images from `quay.io` or from your mirror registry.
+**TODO**
 
 .Procedure
 
-. Install the OpenPERouter v0.3.0 all-in-one manifest:
-+
-[source,terminal]
-----
-$ oc apply -f https://raw.githubusercontent.com/openperouter/openperouter/v0.3.0/config/all-in-one/crio.yaml
-----
-+
-The manifest creates the `openperouter-system` namespace, the custom resource
-definitions, the controller, the router DaemonSet, and the node marker.
-
-. Grant the privileged security context constraint to the service accounts
-that the controller and router pods use. The service accounts exist only after
-the previous step creates the namespace and the workloads:
-+
-[source,terminal]
-----
-$ oc adm policy add-scc-to-user privileged \
-    -n openperouter-system -z controller
-$ oc adm policy add-scc-to-user privileged \
-    -n openperouter-system -z perouter
-----
-
-. Wait for the controller and the router pods to start:
-+
-[source,terminal]
-----
-$ oc get pods -n openperouter-system -w
-----
+**TODO**
 
 .Verification
 
-. Confirm that the OpenPERouter pods are running on the expected nodes:
-+
-[source,terminal]
-----
-$ oc get pods -n openperouter-system -o wide
-$ oc get daemonsets -n openperouter-system
-----
-+
-Each selected worker node has one router pod with the `frr` container. The
-controller and node marker are deployed once.
-
-. Confirm that the custom resource definitions are present:
-+
-[source,terminal]
-----
-$ oc get crd | grep openperouter
-----
-+
-The output includes `underlays.network.openperouter.io`,
-`l2vnis.network.openperouter.io`, `l3vnis.network.openperouter.io`, and the
-other OpenPERouter resource types.
-
-[NOTE]
-====
-The repository scripts use the `openshift-openperouter` namespace because the
-cluster used to develop them installed OpenPERouter there. The upstream
-manifest used here installs into `openperouter-system`. If your cluster already
-has OpenPERouter in `openshift-openperouter`, set that namespace on every
-custom resource and use it in every command instead.
-
-To install with Helm instead of the all-in-one manifest, add the upstream
-repository and install the chart, then grant the same privileged security
-context constraints:
-
-[source,terminal]
-----
-$ helm repo add openperouter https://openperouter.github.io/openperouter
-$ helm repo update
-$ helm install openperouter openperouter/openperouter \
-    --namespace openperouter-system --create-namespace
-$ oc adm policy add-scc-to-user privileged \
-    -n openperouter-system -z controller
-$ oc adm policy add-scc-to-user privileged \
-    -n openperouter-system -z perouter
-----
-====
+**TODO**
 
 [role="_additional-resources"]
 == Additional resources
 
-* link:https://openperouter.github.io/docs/installation/[OpenPERouter installation]
-* link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]
+**TODO**
