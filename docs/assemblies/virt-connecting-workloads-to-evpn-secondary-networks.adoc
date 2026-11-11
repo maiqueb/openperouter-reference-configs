@@ -11,7 +11,8 @@ workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
 external router and its clients can reach the workloads by IP address. When you
 follow this guide, you create an EVPN/VXLAN secondary network carrying
 workload traffic across this extended layer 2 segment, using any of the
-following physical network options:
+physical network options described in
+xref:workload-attachment-models_{context}[Workload attachment models]:
 
 * OVN-Kubernetes localnet topology on a dedicated bridge
 * OVN-Kubernetes localnet topology sharing `br-ex`

@@ -84,6 +84,25 @@ connects workloads to a physical or logical network through an OVS bridge
 mapping, and OVN-Kubernetes creates a `NetworkAttachmentDefinition` for it in
 each selected namespace.
 
+== When to use OpenPERouter
+
+Use OpenPERouter when at least one of the following requirements applies:
+
+* Workloads must be on the same Layer 2 subnet as external systems, and that
+  subnet must be stretched across nodes or clusters.
+* The external fabric uses BGP and EVPN, and the cluster must participate in
+  that fabric rather than be reachable only through a single gateway.
+* The workloads gateway configuration must be stable (same MAC & IP) across all
+  nodes.
+* Tenant networks must be isolated in separate VRFs while sharing the same
+  physical underlay.
+
+Do not use OpenPERouter as a general-purpose pod network. The cluster network
+provider still provides the default pod network, service networking, and
+network policy for the default network. OpenPERouter adds a secondary network
+path.
+
+[id="workload-attachment-models_{context}"]
 == Workload attachment models
 
 OpenPERouter does not create the attachment between a workload and the
@@ -114,24 +133,6 @@ LinuxBridge` and `lifecycle: External`. Workloads attach through a NAD of type
 annotation. In the reference configuration, this NAD sets
 `disableContainerInterface: true`, so it is intended for virtual machines, not
 for pods.
-
-== When to use OpenPERouter
-
-Use OpenPERouter when at least one of the following requirements applies:
-
-* Workloads must be on the same Layer 2 subnet as external systems, and that
-  subnet must be stretched across nodes or clusters.
-* The external fabric uses BGP and EVPN, and the cluster must participate in
-  that fabric rather than be reachable only through a single gateway.
-* The workloads gateway configuration must be stable (same MAC & IP) across all
-  nodes.
-* Tenant networks must be isolated in separate VRFs while sharing the same
-  physical underlay.
-
-Do not use OpenPERouter as a general-purpose pod network. The cluster network
-provider still provides the default pod network, service networking, and
-network policy for the default network. OpenPERouter adds a secondary network
-path.
 
 [role="_additional-resources"]
 == Additional resources
