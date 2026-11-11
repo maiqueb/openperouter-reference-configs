@@ -151,8 +151,9 @@ default route on the pod network instead of the EVPN interface. If the EVPN
 interface is the only interface, or if it is the default route, the return
 route is not required.
 
-. Schedule the virtual machines on different nodes so that the path uses
-VXLAN. Use `nodeSelector` or pod anti-affinity:
+. If the cluster has more than one node, schedule the virtual machines on
+different nodes so that the path uses VXLAN. On a single-node cluster, the
+workload stays on the local bridge. Use `nodeSelector` or pod anti-affinity:
 +
 [source,yaml]
 ----
@@ -200,7 +201,8 @@ $ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
 The EVPN interface must have the static address and the gateway from the
 cloud-init data.
 
-. Confirm connectivity to a peer virtual machine on the other node:
+. If you scheduled a peer virtual machine on another node, confirm
+connectivity to it:
 +
 [source,terminal]
 ----
