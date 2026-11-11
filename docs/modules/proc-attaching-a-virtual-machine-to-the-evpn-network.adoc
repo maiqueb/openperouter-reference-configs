@@ -17,11 +17,13 @@ you use OVN-Kubernetes localnet or a Linux bridge.
 * OpenShift Virtualization is installed and a `HyperConverged` instance is
   available.
 * You have created a network attachment for the chosen model:
-  ** An OVN-Kubernetes localnet NAD from the dedicated bridge or shared single
-  NIC procedure.
+  ** An OVN-Kubernetes localnet `ClusterUserDefinedNetwork` from the dedicated
+  bridge or shared single NIC procedure.
   ** The `bridge` NAD from the Linux bridge procedure.
-* The NAD is in the same namespace as the virtual machine, or the VM uses the
-  fully qualified `<namespace>/<name>` form.
+* For the OVN-Kubernetes localnet model, the `ClusterUserDefinedNetwork`
+  `namespaceSelector` matches the virtual machine namespace. OVN-Kubernetes
+  creates a `NetworkAttachmentDefinition` with the same name in that
+  namespace.
 * You have a container disk image and, optionally, an SSH key secret.
 * The virtual machines can be scheduled on nodes that run the OpenPERouter
   router pod.
@@ -73,8 +75,10 @@ spec:
                   gateway4: 192.170.1.1
 ----
 
-. For an OVN-Kubernetes localnet attachment, set `networkName` to the localnet
-NAD and use only the gateway in the guest configuration:
+. For an OVN-Kubernetes localnet attachment, set `networkName` to the
+`NetworkAttachmentDefinition` that OVN-Kubernetes created for the
+`ClusterUserDefinedNetwork`, and use only the gateway in the guest
+configuration:
 +
 [source,yaml]
 ----

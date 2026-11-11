@@ -180,46 +180,35 @@ Apply the converted resources:
 $ oc apply -f openperouter-vnis.yaml
 ----
 
-. Create the localnet NAD. The `physicalNetworkName` value must match the
-mapping from step 2:
+. Create the localnet `ClusterUserDefinedNetwork`. The
+`localnet.physicalNetworkName` value must match the mapping from step 2:
 +
 [source,yaml]
 ----
-apiVersion: k8s.cni.cncf.io/v1
-kind: NetworkAttachmentDefinition
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
 metadata:
   name: evpn
-  namespace: evpn-localnet-test
 spec:
-  config: |
-    {
-      "cniVersion": "0.3.1",
-      "name": "evpn",
-      "type": "ovn-k8s-cni-overlay",
-      "topology": "localnet",
-      "netAttachDefName": "evpn-localnet-test/evpn",
-      "physicalNetworkName": "datanet"
-    }
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: evpn-localnet-test
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: datanet
+      ipam:
+        mode: Disabled
 ----
++
+The OVN-Kubernetes controller creates a `NetworkAttachmentDefinition` named
+`evpn` in the `evpn-localnet-test` namespace. `ipam.mode: Disabled` leaves IP
+configuration to the workloads.
 
-. For the VLAN trunk variant, create one localnet network per VLAN. A NAD
-uses the top-level `vlanID` key:
-+
-[source,json]
-----
-{
-  "cniVersion": "0.3.1",
-  "name": "evpn-vlan-200",
-  "type": "ovn-k8s-cni-overlay",
-  "topology": "localnet",
-  "netAttachDefName": "default/evpn-vlan-200",
-  "physicalNetworkName": "physnet",
-  "vlanID": 200
-}
-----
-+
-A `ClusterUserDefinedNetwork` expresses the same access VLAN under
-`layer2.vlan`:
+. For the VLAN trunk variant, create one localnet network per VLAN. Use a
+`ClusterUserDefinedNetwork` with the `Localnet` topology and set the access
+VLAN under `localnet.vlan`:
 +
 [source,yaml]
 ----
@@ -232,15 +221,22 @@ spec:
     matchLabels:
       kubernetes.io/metadata.name: <namespace>
   network:
-    topology: Layer2
-    layer2:
+    topology: Localnet
+    localnet:
       role: Secondary
       physicalNetworkName: physnet
       vlan:
         mode: Access
         access:
           id: 200
+      ipam:
+        mode: Disabled
 ----
++
+`ipam.mode: Disabled` leaves addressing to the workloads. To let
+OVN-Kubernetes assign addresses, omit `ipam` and set `localnet.subnets` to
+the VLAN subnet. To use a DHCP server on the VLAN, set `ipam.mode: DHCP` and
+omit `subnets`.
 +
 OVN-Kubernetes does not support a trunk-mode attachment. Each VLAN is a
 separate network. The `physicalNetworkName` value must match an existing

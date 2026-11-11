@@ -24,8 +24,9 @@ L2VNI provides the EVPN stretch and the anycast gateway.
 .Procedure
 
 . Create the OVS bridge and the OVN-Kubernetes bridge mapping. The following
-`NodeNetworkConfigurationPolicy` creates a kernel `bond1` for the underlay
-and a separate OVS bridge `ovsbr1` for the localnet:
+`NodeNetworkConfigurationPolicy` assumes the user has two free interfaces to
+bond, and creates a kernel `bond1` for the underlay and a separate OVS bridge
+`ovsbr1` for the localnet:
 +
 [source,yaml]
 ----
@@ -95,8 +96,8 @@ $ oc get nnce
 ----
 
 . Configure the underlay. Use a `CNIDevice` whose raw configuration creates a
-macvlan or ipvlan device on top of the node interface or bridge. The converted
-`Underlay` from the dedicated bridge reference configuration uses a macvlan on
+macvlan (or ipvlan) device on top of the node interface or bridge. In the
+following example we use an `Underlay` configuration with a macvlan on
 `bond1` with static addresses:
 +
 [source,yaml]
@@ -143,9 +144,6 @@ of nodes and a configuration that gives each node a unique address. Apply it:
 $ oc apply -f openperouter-underlay.yaml
 ----
 +
-The `localnet/dedicated-bridge/02-openperouter-logical-infra.yaml` file in
-the repository uses the legacy API. Apply the converted resource that you
-created, not the legacy file.
 
 . Create the L3VNI and the L2VNI. The L2VNI attaches to `ovsbr1` with
 `lifecycle: External` because NMState owns the bridge:
@@ -188,38 +186,39 @@ Apply the resources:
 $ oc apply -f openperouter-vnis.yaml
 ----
 +
-The `localnet/dedicated-bridge/02-openperouter-logical-infra.yaml` file in
-the repository uses the legacy API and also contains the `Underlay`
-resources. Apply the converted resources that you created instead.
 
-. Create the localnet `NetworkAttachmentDefinition`. The
-`physicalNetworkName` value must match the `localnet` value in the NNCP
-bridge mapping:
+. Create the localnet `ClusterUserDefinedNetwork`. The
+`localnet.physicalNetworkName` value must match the `localnet` value in the
+NNCP bridge mapping:
 +
 [source,yaml]
 ----
-apiVersion: k8s.cni.cncf.io/v1
-kind: NetworkAttachmentDefinition
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
 metadata:
   name: evpn
-  namespace: default
 spec:
-  config: |
-    {
-      "cniVersion": "0.3.1",
-      "name": "evpn",
-      "type": "ovn-k8s-cni-overlay",
-      "topology": "localnet",
-      "netAttachDefName": "default/evpn",
-      "physicalNetworkName": "datanet"
-    }
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: default
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: datanet
+      ipam:
+        mode: Disabled
 ----
 +
-Apply the NAD:
+`ipam.mode: Disabled` turns off OVN-Kubernetes IPAM, so each workload
+configures its own address and uses the anycast gateway that OpenPERouter
+provides.
++
+Apply the `ClusterUserDefinedNetwork`:
 +
 [source,terminal]
 ----
-$ oc apply -f 03-localnet-nad.yaml
+$ oc apply -f 03-localnet-cudn.yaml
 ----
 
 .Verification
@@ -255,24 +254,17 @@ $ oc exec -n openperouter-system <router-pod> -c frr -- \
 +
 The output lists VNI 100 as `L3` and VNI 110 as `L2`, both in VRF `red`.
 
-. Confirm that the localnet NAD is available:
+. Confirm that the localnet `ClusterUserDefinedNetwork` is available:
 +
 [source,terminal]
 ----
+$ oc get clusteruserdefinednetwork evpn
 $ oc get network-attachment-definitions -A
 ----
 +
-The NAD status must report that it is ready before you attach a workload.
-
-[NOTE]
-====
-The `localnet/dedicated-bridge/nncp-balance-slb.yaml` file is an alternative
-NNCP that places an OVS bond with `balance-slb` mode inside `ovsbr1`. Choose
-either the kernel bond variant or the OVS bond variant, not both. An OVS bond
-is not a kernel network device, so the underlay macvlan cannot use `bond1` as
-its parent in the OVS variant; attach it to an OVS internal interface such as
-`ovsbr1` instead.
-====
+The `NetworkCreated` condition must be `True`, and the generated
+`NetworkAttachmentDefinition` must be present in the target namespace before
+you attach a workload.
 
 [role="_additional-resources"]
 == Additional resources
