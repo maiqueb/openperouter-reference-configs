@@ -402,16 +402,20 @@ exit
 
 == Verification
 
-Confirm first that NMState applied the bridge policy:
+Confirm first that NMState applied the bridge policy and that OpenPERouter
+accepted the VNIs:
 
 [source,terminal]
 ----
 $ oc get nncp linux-bridge-perouter-vni-110 -o yaml
 $ oc get nnce -l nmstate.io/policy=linux-bridge-perouter-vni-110 -o yaml
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
 
 In `status.conditions` of the policy, `Available` must be `True` with reason
 `SuccessfullyConfigured`, and each enactment must report `Available: True`.
+Each `RouterNodeConfigurationStatus` must show `READY` as `True` and `DEGRADED`
+as `False`, with an empty `status.failedResources`.
 
 The repository test sequence is:
 
