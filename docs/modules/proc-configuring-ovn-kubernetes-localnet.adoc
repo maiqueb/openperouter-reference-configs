@@ -1,0 +1,282 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-configuring-ovn-kubernetes-localnet_{context}"]
+= Configuring OVN-Kubernetes localnet with a dedicated bridge
+
+[role="_abstract"]
+Create a dedicated OVS bridge, map it to an OVN-Kubernetes localnet, and bind
+an OpenPERouter L2VNI to it. OVN-Kubernetes owns the workload attachment; the
+L2VNI provides the EVPN stretch and the anycast gateway.
+
+.Prerequisites
+
+* The Kubernetes NMState Operator and OpenPERouter are installed.
+* You have at least two worker nodes with a dedicated NIC or bond for the
+  underlay.
+* The external router is configured and reachable from the node underlay
+  addresses.
+* You have decided on the VNI identifiers, workload subnet, and gateway
+  address.
+
+.Procedure
+
+. Create the OVS bridge and the OVN-Kubernetes bridge mapping. The following
+`NodeNetworkConfigurationPolicy` creates a kernel `bond1` for the underlay
+and a separate OVS bridge `ovsbr1` for the localnet:
++
+[source,yaml]
+----
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: dedicated-linux-bond-iface
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        link-aggregation:
+          mode: active-backup
+          port:
+            - ens4
+            - ens5
+      - name: ens4
+        type: ethernet
+        state: up
+      - name: ens5
+        type: ethernet
+        state: up
+      - name: ovsbr1
+        type: ovs-interface
+        state: up
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+      - name: ovsbr1
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options:
+            stp: false
+          port:
+            - name: ovsbr1
+    ovn:
+      bridge-mappings:
+        - bridge: ovsbr1
+          localnet: datanet
+          state: present
+----
++
+In this variant, `bond1` is a kernel bond used only for the OpenPERouter
+underlay, and `ovsbr1` is a bridge with no physical uplink. VXLAN carries the
+workload Layer 2 segment, so `ovsbr1` does not need an uplink port.
+
+. Apply the policy and wait for it to converge:
++
+[source,terminal]
+----
+$ oc apply -f 01-bond-config-plus-ovs-bridge-for-localnet.yaml
+$ oc wait nncp dedicated-linux-bond-iface \
+    --for=condition=Available --timeout=10m
+$ oc get nncp
+$ oc get nnce
+----
+
+. Configure the underlay. Use a `CNIDevice` whose raw configuration creates a
+macvlan or ipvlan device on top of the node interface or bridge. The converted
+`Underlay` from the dedicated bridge reference configuration uses a macvlan on
+`bond1` with static addresses:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 10.200.11.8
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: bond1
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 10.200.11.50/16
+----
++
+Create one `Underlay` per node, or use a `nodeSelector` that selects a group
+of nodes and a configuration that gives each node a unique address. Apply it:
++
+[source,terminal]
+----
+$ oc apply -f openperouter-underlay.yaml
+----
++
+The `localnet/dedicated-bridge/02-openperouter-logical-infra.yaml` file in
+the repository uses the legacy API. Apply the converted resource that you
+created, not the legacy file.
+
+. Create the L3VNI and the L2VNI. The L2VNI attaches to `ovsbr1` with
+`lifecycle: External` because NMState owns the bridge:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L3VNI
+metadata:
+  name: red
+  namespace: openperouter-system
+spec:
+  vni: 100
+  vrf: red
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: layer2
+  namespace: openperouter-system
+spec:
+  hostMaster:
+    type: OVSBridge
+    ovsBridge:
+      lifecycle: External
+      name: ovsbr1
+  gatewayIPs:
+    - 192.170.1.1/24
+  vni: 110
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: red
+----
++
+Apply the resources:
++
+[source,terminal]
+----
+$ oc apply -f openperouter-vnis.yaml
+----
++
+The `localnet/dedicated-bridge/02-openperouter-logical-infra.yaml` file in
+the repository uses the legacy API and also contains the `Underlay`
+resources. Apply the converted resources that you created instead.
+
+. Create the localnet `NetworkAttachmentDefinition`. The
+`physicalNetworkName` value must match the `localnet` value in the NNCP
+bridge mapping:
++
+[source,yaml]
+----
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: evpn
+  namespace: default
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "evpn",
+      "type": "ovn-k8s-cni-overlay",
+      "topology": "localnet",
+      "netAttachDefName": "default/evpn",
+      "physicalNetworkName": "datanet"
+    }
+----
++
+Apply the NAD:
++
+[source,terminal]
+----
+$ oc apply -f 03-localnet-nad.yaml
+----
+
+.Verification
+
+. Confirm that OpenPERouter accepted the resources:
++
+[source,terminal]
+----
+$ oc get underlay,l3vni,l2vni -n openperouter-system
+$ oc get pods -n openperouter-system -o wide
+----
+
+. Confirm the OVS topology and bridge mapping on a worker node:
++
+[source,terminal]
+----
+$ oc debug node/<worker-node> -- chroot /host ovs-vsctl show
+$ oc debug node/<worker-node> -- chroot /host \
+    ovs-vsctl get open . external_ids:ovn-bridge-mappings
+----
++
+The mapping must contain `datanet:ovsbr1`. The bridge must contain the
+`ovsbr1` internal port, a patch port that OVN-Kubernetes created, and the
+OpenPERouter veth port for VNI 110.
+
+. Confirm that the EVPN VNIs are up in the router pod:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    vtysh -c 'show evpn vni'
+----
++
+The output lists VNI 100 as `L3` and VNI 110 as `L2`, both in VRF `red`.
+
+. Confirm that the localnet NAD is available:
++
+[source,terminal]
+----
+$ oc get network-attachment-definitions -A
+----
++
+The NAD status must report that it is ready before you attach a workload.
+
+[NOTE]
+====
+The `localnet/dedicated-bridge/nncp-balance-slb.yaml` file is an alternative
+NNCP that places an OVS bond with `balance-slb` mode inside `ovsbr1`. Choose
+either the kernel bond variant or the OVS bond variant, not both. An OVS bond
+is not a kernel network device, so the underlay macvlan cannot use `bond1` as
+its parent in the OVS variant; attach it to an OVS internal interface such as
+`ovsbr1` instead.
+====
+
+[role="_additional-resources"]
+== Additional resources
+
+* xref:proc-attaching-a-pod-to-the-evpn-network_{context}[Attaching a pod to the EVPN network]
+* xref:proc-attaching-a-virtual-machine-to-the-evpn-network_{context}[Attaching a virtual machine to the EVPN network]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks[OpenShift Container Platform multiple networks]

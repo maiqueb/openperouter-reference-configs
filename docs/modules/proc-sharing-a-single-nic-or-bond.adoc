@@ -1,0 +1,296 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-sharing-a-single-nic-or-bond_{context}"]
+= Sharing a single NIC or bond with the default cluster network
+
+[role="_abstract"]
+When a node has only one NIC or bond, OVN-Kubernetes uses it for the default
+cluster network through `br-ex`. You can still provide an EVPN secondary
+network by keeping the default cluster network on `br-ex`, using a macvlan on
+`br-ex` for the OpenPERouter underlay, and using a separate bridge without an
+uplink for the localnet attachment. Alternatively, you can expose additional
+VLANs of the trunk as direct OVN-Kubernetes secondary networks.
+
+.Prerequisites
+
+* The Kubernetes NMState Operator and OpenPERouter are installed.
+* OVN-Kubernetes owns `br-ex` and the default cluster network is healthy.
+* The external router is configured and can reach the underlay address that
+  the macvlan receives.
+* You have unused VNI identifiers and a workload subnet that does not overlap
+  the default cluster network or the underlay.
+
+.Procedure
+
+. Choose how the shared NIC or bond carries secondary traffic:
++
+--
+*EVPN secondary network over the shared NIC*: Keep the default cluster
+network on `br-ex`. Create a separate OVS bridge, `ovsbr1`, with no uplink,
+and map it to the localnet name `datanet`. OpenPERouter creates a macvlan on
+`br-ex` for the BGP underlay, and VXLAN carries the workload Layer 2 segment.
+This is the pattern in `localnet/br-ex/`.
+
+*VLAN trunk secondary networks*: Keep the default cluster network on one VLAN
+of the trunk. Expose the other VLANs as separate OVN-Kubernetes localnet
+networks on the existing `physnet:br-ex` mapping. These VLANs are direct
+Layer 2 networks and are not stretched by OpenPERouter. If you also need EVPN
+for one of those VLANs, create a bridge and an L2VNI for that VLAN and attach
+the bridge to the trunk with an access port for the VLAN.
+--
+
+. For the EVPN secondary network, create the secondary OVS bridge and the
+bridge mapping:
++
+[source,yaml]
+----
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: localnet-dedicated-bridge
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+      - name: ovsbr1
+        type: ovs-interface
+        state: up
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+      - name: ovsbr1
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options:
+            stp: false
+          port:
+            - name: ovsbr1
+    ovn:
+      bridge-mappings:
+        - bridge: ovsbr1
+          localnet: datanet
+          state: present
+----
++
+Do not add `br-ex` or its uplink to `ovsbr1`. OVN-Kubernetes owns `br-ex`,
+and changing its ports or its uplink can disrupt the default cluster network.
+
+. Apply the policy and wait for it to converge:
++
+[source,terminal]
+----
+$ oc apply -f 01-localnet-bridge-mapping.yaml
+$ oc wait nncp localnet-dedicated-bridge \
+    --for=condition=Available --timeout=10m
+----
+
+. Configure the underlay as a macvlan on `br-ex`. The CNI device creates the
+interface `net1` in the router pod and obtains an address through DHCP:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openperouter-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.122.15
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: br-ex
+              mode: bridge
+              capabilities:
+                mac: true
+              ipam:
+                type: dhcp
+        runtimeConfig:
+          mac: "aa:bb:cc:00:00:01"
+----
++
+Create one `Underlay` per node and give each node a unique
+`runtimeConfig.mac`. Apply the resources:
++
+[source,terminal]
+----
+$ oc apply -f openperouter-underlay.yaml
+----
+
+. Create the L3VNI and the L2VNI. The L2VNI attaches to `ovsbr1`:
++
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L3VNI
+metadata:
+  name: red
+  namespace: openperouter-system
+spec:
+  vni: 100
+  vrf: red
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: layer2
+  namespace: openperouter-system
+spec:
+  hostMaster:
+    type: OVSBridge
+    ovsBridge:
+      lifecycle: External
+      name: ovsbr1
+  gatewayIPs:
+    - 192.170.1.1/24
+  vni: 110
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: red
+----
++
+Apply the converted resources:
++
+[source,terminal]
+----
+$ oc apply -f openperouter-vnis.yaml
+----
+
+. Create the localnet NAD. The `physicalNetworkName` value must match the
+mapping from step 2:
++
+[source,yaml]
+----
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: evpn
+  namespace: evpn-localnet-test
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "evpn",
+      "type": "ovn-k8s-cni-overlay",
+      "topology": "localnet",
+      "netAttachDefName": "evpn-localnet-test/evpn",
+      "physicalNetworkName": "datanet"
+    }
+----
+
+. For the VLAN trunk variant, create one localnet network per VLAN. A NAD
+uses the top-level `vlanID` key:
++
+[source,json]
+----
+{
+  "cniVersion": "0.3.1",
+  "name": "evpn-vlan-200",
+  "type": "ovn-k8s-cni-overlay",
+  "topology": "localnet",
+  "netAttachDefName": "default/evpn-vlan-200",
+  "physicalNetworkName": "physnet",
+  "vlanID": 200
+}
+----
++
+A `ClusterUserDefinedNetwork` expresses the same access VLAN under
+`layer2.vlan`:
++
+[source,yaml]
+----
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: evpn-vlan-200
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: <namespace>
+  network:
+    topology: Layer2
+    layer2:
+      role: Secondary
+      physicalNetworkName: physnet
+      vlan:
+        mode: Access
+        access:
+          id: 200
+----
++
+OVN-Kubernetes does not support a trunk-mode attachment. Each VLAN is a
+separate network. The `physicalNetworkName` value must match an existing
+bridge mapping; the default OVN-Kubernetes mapping usually contains
+`physnet:br-ex`.
+
+.Verification
+
+. Confirm that the OVS bridges and mappings are correct:
++
+[source,terminal]
+----
+$ oc debug node/<worker-node> -- chroot /host ovs-vsctl show
+$ oc debug node/<worker-node> -- chroot /host \
+    ovs-vsctl get open . external_ids:ovn-bridge-mappings
+----
++
+The mapping must contain `datanet:ovsbr1` and `physnet:br-ex`. `br-ex` keeps
+its uplink and its OVN-Kubernetes patch port. `ovsbr1` has no uplink; it has
+its internal port, the OVN-Kubernetes patch port, and the OpenPERouter veth
+port for VNI 110.
+
+. Confirm that the underlay interface in the router pod is `net1`, not
+`macvlan0`:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    ip addr show net1
+----
++
+The repository also contains `02-macvlan-underlay.yaml`, which creates a
+host macvlan named `macvlan0` on `br-ex`. That policy is optional for the
+current `CNIDevice` path. The interface that OpenPERouter uses is `net1`,
+which the CNI plugin creates from the `Underlay` raw configuration.
+
+. Confirm that the BGP session to the external router is established:
++
+[source,terminal]
+----
+$ oc exec -n openperouter-system <router-pod> -c frr -- \
+    vtysh -c 'show bgp l2vpn evpn summary'
+----
+
+[NOTE]
+====
+The checked-in results under `localnet/br-ex/results/` were captured before
+the configuration changed from a host macvlan to a CNI device. They show
+`macvlan0` and a BGP neighbor at `192.168.122.201`. The current manifest uses
+`net1` and the example neighbor `192.168.122.15`. Use the manifest values when
+you build the configuration, and use the results only to understand the
+expected bridge, VNI, and route state.
+====

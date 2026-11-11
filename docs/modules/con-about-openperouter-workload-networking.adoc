@@ -1,0 +1,145 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: CONCEPT
+[id="con-about-openperouter-workload-networking_{context}"]
+= About OpenPERouter workload networking
+
+[role="_abstract"]
+OpenPERouter connects workloads on an OpenShift Container Platform cluster to an
+external Layer 2 or Layer 3 network by using BGP and EVPN control planes and a
+VXLAN data plane. It does not replace the cluster network provider; it adds an
+EVPN provider edge to the nodes that host the workloads.
+
+OpenShift Container Platform isolates pods and virtual machines on overlay
+networks. Some external systems must reach those workloads directly, or the
+workloads must appear on an existing Layer 2 segment: for example, a VLAN that
+hosts bare-metal servers, a firewall, or a load balancer. Extending an overlay
+network with routing alone does not preserve Layer 2 semantics such as MAC
+learning, gratuitous ARP, or a shared subnet.
+
+OpenPERouter, short for _open provider edge router_, implements the provider
+edge function on each node. A controller reconciles OpenPERouter custom
+resources, and a router pod on every selected node runs FRRouting (FRR) inside a
+persistent network namespace named `perouter`. The router pod exchanges BGP and
+EVPN routes with the external fabric and encapsulates workload traffic in VXLAN.
+Each tenant network is placed in its own VRF, and the gateway IP address of a
+workload subnet is distributed as an anycast address on every node that
+participates in the network.
+
+.OpenPERouter data path
+....
++-------------------+        +--------------------+        +-------------------+
+| Pod or VM         |        | Attachment         |        | OpenPERouter      |
+| 192.170.1.10/24   | -----> | ovsbr1 or          | -----> | L2VNI 110         |
+| MAC 02:...:10     |        | brvni110           |        | vni110 (VXLAN)    |
++-------------------+        +--------------------+        +---------+---------+
+                                                                     |
+                                                                     | VXLAN
+                                                                     | 100.65.0.0/24
+                                                                     v
+                                                           +-------------------+
+                                                           | External router   |
+                                                           | BGP AS 64512      |
+                                                           | VRF red, VNI 100  |
+                                                           +-------------------+
+....
+
+== Key terms
+
+EVPN:: Ethernet VPN. A BGP address family that distributes MAC addresses,
+MAC/IP bindings, and IP prefixes for Layer 2 and Layer 3 tenant networks.
+
+VNI:: VXLAN Network Identifier. A 24-bit identifier that scopes a VXLAN
+segment.
+
+VRF:: Virtual Routing and Forwarding instance. A separate routing table that
+isolates one tenant network from another.
+
+VTEP:: VXLAN tunnel endpoint. The IP address that terminates VXLAN tunnels. In
+the examples, every node uses an address from the `100.65.0.0/24` pool.
+
+L2VNI:: An OpenPERouter custom resource that maps a VNI to a Layer 2 segment
+and to a host bridge. An L2VNI can optionally be associated with a routing
+domain to provide a gateway.
+
+L3VNI:: An OpenPERouter custom resource that maps a VNI to a VRF and provides
+inter-subnet routing for the L2VNIs in its routing domain.
+
+Anycast gateway:: A gateway IP address and MAC address that are configured
+identically on every node. A workload can move between nodes without changing
+its default gateway.
+
+Localnet:: An OVN-Kubernetes secondary network topology that connects a network
+attachment to a physical or logical network through an OVS bridge mapping.
+
+NetworkAttachmentDefinition (NAD):: A Kubernetes resource that describes how
+Multus, OVN-Kubernetes, or another CNI plugin attaches a pod or virtual machine
+to an additional network.
+
+ClusterUserDefinedNetwork (CUDN) and UserDefinedNetwork (UDN):: OVN-Kubernetes
+resources that define additional networks. A Layer 2 CUDN or UDN can use a
+localnet physical network in the same way as a localnet NAD.
+
+== Workload attachment models
+
+OpenPERouter does not create the attachment between a workload and the
+bridge. You choose an attachment model, create the bridge and the network
+attachment, and then bind the bridge to OpenPERouter with an L2VNI
+`hostMaster`.
+
+OVN-Kubernetes localnet with a dedicated bridge:: OVN-Kubernetes owns an OVS
+bridge such as `ovsbr1`. A `NodeNetworkConfigurationPolicy` creates the bridge
+and adds the OVN bridge mapping `datanet:ovsbr1`. Workloads attach through a
+NAD of type `ovn-k8s-cni-overlay` with `topology: localnet`. OpenPERouter
+attaches its L2VNI to the same bridge with `hostMaster.type: OVSBridge` and
+`lifecycle: External`. Pods and virtual machines are both supported.
+
+Shared single NIC or bond:: The node has one NIC or bond, and OVN-Kubernetes
+already uses it for the default cluster network through `br-ex`. OpenPERouter
+uses a macvlan interface on `br-ex` for the BGP underlay, and a separate OVS
+bridge without an uplink, such as `ovsbr1`, as the localnet attachment point.
+VXLAN carries the workload Layer 2 segment between nodes, so the segment does
+not need a VLAN on the physical uplink. This model is a variant of the OVN-K
+localnet model.
+
+Linux bridge:: A `NodeNetworkConfigurationPolicy` creates a kernel bridge such
+as `brvni110`. OpenPERouter attaches its L2VNI with `hostMaster.type:
+LinuxBridge` and `lifecycle: External`. Workloads attach through a NAD of type
+`bridge` and, for KubeVirt, the `bridge.network.kubevirt.io/<bridge>` resource
+annotation. In the reference configuration, this NAD sets
+`disableContainerInterface: true`, so it is intended for virtual machines, not
+for pods.
+
+The OVN-Kubernetes integration is an OpenShift-side pattern built on the
+OpenPERouter `hostMaster` and `CNIDevice` extension points. Upstream
+OpenPERouter documents those extension points, but it does not prescribe a
+complete OVN-Kubernetes recipe. Treat the manifests in this repository as
+working reference configurations that you adapt to your cluster.
+
+== When to use OpenPERouter
+
+Use OpenPERouter when at least one of the following requirements applies:
+
+* Workloads must be on the same Layer 2 subnet as external systems, and that
+  subnet must be stretched across nodes or clusters.
+* The external fabric uses BGP and EVPN, and the cluster must participate in
+  that fabric rather than be reachable only through a single gateway.
+* Workloads need a gateway that follows them across nodes without changing
+  their IP configuration.
+* Tenant networks must be isolated in separate VRFs while sharing the same
+  physical underlay.
+
+Do not use OpenPERouter as a general-purpose pod network. The cluster network
+provider still provides the default pod network, service networking, and
+network policy for the default network. OpenPERouter adds a secondary network
+path.
+
+[role="_additional-resources"]
+== Additional resources
+
+* xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices]
+* xref:con-openperouter-configuration-model_{context}[OpenPERouter configuration model]
+* link:https://openperouter.github.io/[OpenPERouter documentation]
+* link:https://openperouter.github.io/docs/architecture/[OpenPERouter architecture]

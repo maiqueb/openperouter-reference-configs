@@ -1,0 +1,134 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: REFERENCE
+[id="ref-limitations-and-alternatives_{context}"]
+= Limitations and alternatives
+
+[role="_abstract"]
+Review the current limitations of OpenPERouter workload networking and the
+alternative mechanisms that you can use when one of the documented models does
+not fit your environment.
+
+== Limitations
+
+Project maturity:: OpenPERouter is an early-stage project. Treat the version
+that you install as a pinned dependency and validate every upgrade against
+your own fabric. This repository pins v0.3.0.
+
+API drift:: The checked-in `linux-bridge/` and `localnet/dedicated-bridge/`
+manifests use the legacy `openpe.openperouter.github.io/v1alpha1` API. The
+examples in this assembly use the v0.3.0 `network.openperouter.io/v1alpha1`
+API. Resource names and fields changed between the two APIs, and some
+resources gained required fields. Plan to convert any manifest that you copy
+from the repository.
+
+Network namespace durability:: OpenPERouter keeps its kernel state, including
+FRR and the tenant VRF, in a persistent `/var/run/netns/perouter` namespace
+that is bind mounted from the host. The state survives a restart of the FRR
+container, because the namespace is not destroyed with the pod. A node reboot
+or any operation that rebuilds the namespace from scratch does destroy that
+state, and the EVPN data plane is unavailable until OpenPERouter recreates
+the namespace and the routes reconverge. Expect an outage in the range of
+several seconds to tens of seconds; the exact duration depends on the number
+of VNIs and on the BGP timers.
+
+Graceful Restart:: OpenPERouter and its neighbors must both support and enable
+Graceful Restart for a restart to be hitless. The `Underlay` resource has a
+`gracefulRestart` field. If the external router does not advertise the
+capability, or if the restart exceeds the configured timer, the sessions
+reset and traffic drops.
+
+No published OpenShift or OVN-Kubernetes version matrix:: Upstream
+OpenPERouter does not publish a supported-version matrix for
+OVN-Kubernetes. Validate the bridge mapping, the localnet NAD behavior, and
+the node network configuration on your OpenShift version.
+
+OVN-Kubernetes owns `br-ex`:: In the shared single NIC model, `br-ex` and its
+uplink belong to OVN-Kubernetes. Do not add ports to `br-ex`, change its
+configuration, or repurpose its uplink. Use a separate bridge for the EVPN
+segment and a macvlan on `br-ex` for the underlay.
+
+OVN-Kubernetes localnet restrictions::
+* No VLAN trunking. Each VLAN is a separate localnet network, and
+  v0.3.0 OpenPERouter has no VLAN tag field, so a tagged segment needs its own
+  bridge and L2VNI.
+* The KubeVirt localnet path does not provide IPAM. The repository examples
+  assign static guest addresses through cloud-init.
+* MAC spoof checking is always enabled in that path, and promiscuous mode is
+  not supported. Workloads cannot use a MAC address that differs from the one
+  OVN-Kubernetes assigns, and a workload cannot receive frames for an
+  arbitrary set of MAC addresses.
+* Enabling VLAN trunking in the NAD or in a CUDN does not extend to
+  OpenPERouter; the EVPN segment is still one Layer 2 domain per VNI.
+
+Linux bridge NAD is VM-only:: The repository NAD sets
+`disableContainerInterface: true` and requires a KubeVirt bridge binding. A
+pod that attaches to this NAD gets no usable interface. If you need pod
+workloads, use the OVN-Kubernetes localnet model or define a separate bridge
+NAD without that setting.
+
+Bond modes:: The repository NNCPs use a kernel `active-backup` bond or an OVS
+`balance-slb` bond. OpenShift Virtualization recommends `balance-slb` or LACP
+(`802.3ad`) for OVS bonds and documents which bonding modes work with
+virtualization workloads. Match the mode to the switch configuration; a
+mismatch leaves the bond up but forwarding incorrectly.
+
+MTU:: The VXLAN encapsulation reduces the usable MTU on the EVPN interfaces.
+The checked-in results show an underlay MTU of 1500 and an EVPN bridge and
+VNI MTU of 1450 on the Linux bridge path, and an MTU of 1400 on the pod
+interface in the `br-ex` results. These values are observations, not a rule.
+Verify the path MTU for your fabric with a non-fragmented ping, for example:
+
+[source,terminal]
+----
+$ ping -M do -s 1422 -c 3 192.170.1.5
+----
+
+Static addressing in the examples:: The pod and virtual machine examples use
+static addresses. For a larger deployment, integrate your own IPAM or
+external DHCP with the segment.
+
+== Alternatives
+
+Dedicated NIC per workload network:: Instead of sharing an uplink, give the
+segment its own NIC or bond on every node, as in the dedicated bridge model.
+This is the simplest isolation model and the one to prefer when hardware is
+available.
+
+SR-IOV:: SR-IOV virtual functions provide near-native throughput and
+hardware-level isolation, and they support VLAN tagging in the virtual
+function. Use SR-IOV when you need line-rate performance or hardware
+offload, and accept that the fabric must route or stretch the segment without
+OpenPERouter.
+
+Macvlan:: A plain macvlan attachment gives a workload its own MAC address on
+an existing interface. This is a good fit for legacy applications that expect
+Layer 2 adjacency on a subnet that already exists. It has no EVPN control
+plane, no anycast gateway, and no cross-node flooding beyond what the
+underlying network provides.
+
+OVN-Kubernetes CUDN or UDN:: A `ClusterUserDefinedNetwork` or a primary
+`UserDefinedNetwork` gives you the OVN-Kubernetes network model, network
+policies, and IPAM without an external control plane. Choose this when the
+workload segment can stay inside the cluster, or when a VLAN on the physical
+trunk is sufficient.
+
+Primary user-defined network:: This is the stronger OVN-Kubernetes isolation
+model, in which the pod or virtual machine network replaces the default
+cluster network for the selected namespaces. Use it when the tenant network
+must not share the default cluster network at all.
+
+OpenPERouter `L3Passthrough`:: This OpenPERouter mode exposes the underlay
+network to selected workloads without an EVPN overlay. It suits edge
+workloads that must use the node's routing table and the provider addresses
+directly, rather than a stretched Layer 2 segment.
+
+[role="_additional-resources"]
+== Additional resources
+
+* link:https://openperouter.github.io/[OpenPERouter project site]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/networking#virt-connecting-vm-to-ovn-secondary-network[Connecting a virtual machine to an OVN-Kubernetes secondary network]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks/virtual-routing-and-forwarding[About virtual routing and forwarding in OpenShift Container Platform]
+* link:https://github.com/maiqueb/openperouter-reference-configs/blob/main/docs/cclm-migration-analysis.md[CCLM migration packet loss analysis]

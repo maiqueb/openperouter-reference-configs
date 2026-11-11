@@ -1,6 +1,35 @@
 # openperouter-reference-configs
 Reference configuration for open pe router
 
+## Documentation
+
+The reference guide lives in [docs/](docs/) and is written in AsciiDoc. Every
+push to `main` that touches the docs renders it with Asciidoctor and publishes
+the HTML to GitHub Pages via the
+[docs workflow](.github/workflows/docs.yml):
+
+**https://maiqueb.github.io/openperouter-reference-configs/**
+
+To render the guide locally with Ruby:
+
+```bash
+bundle install
+bundle exec ./hack/build-docs.sh
+# then open docs/build/index.html
+```
+
+Or, without Ruby installed, using the Asciidoctor container image:
+
+```bash
+podman run --rm -v "$PWD":/documents -w /documents \
+    --security-opt label=disable \
+    --user "$(id -u):$(id -g)" \
+    docker.io/asciidoctor/docker-asciidoctor:latest ./hack/build-docs.sh
+```
+
+**NOTE:** GitHub Pages must be enabled once in the repository settings, with
+**Build and deployment > Source** set to **GitHub Actions**.
+
 ## OpenShift cluster
 Use kcli to spin up the OpenShift cluster. These are the parameters I'm using:
 ```bash
