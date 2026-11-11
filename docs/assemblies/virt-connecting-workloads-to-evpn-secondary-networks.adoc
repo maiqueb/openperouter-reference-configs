@@ -31,9 +31,9 @@ include::../modules/proc-installing-kubernetes-nmstate.adoc[leveloffset=+1]
 
 include::../modules/proc-installing-openperouter.adoc[leveloffset=+1]
 
-include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
-
 include::../modules/con-openperouter-configuration-model.adoc[leveloffset=+1]
+
+include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
 
 include::../modules/proc-configuring-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 

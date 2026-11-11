@@ -10,7 +10,7 @@
 OpenPERouter uses three custom resources. An `Underlay` describes how a node
 reaches the external fabric, an `L3VNI` describes a tenant VRF, and an `L2VNI`
 describes a Layer 2 segment and the host bridge that carries it. Multiple
-`L2VNI`s can share the same VRF - thus, multiple `L2VNI`s can point at the same
+`L2VNI` can share the same VRF - thus, multiple `L2VNI` can point at the same
 `L3VNI`.
 
 .OpenPERouter resource relationships
