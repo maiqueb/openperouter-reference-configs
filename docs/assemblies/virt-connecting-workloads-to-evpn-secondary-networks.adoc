@@ -41,8 +41,6 @@ include::../modules/proc-sharing-a-single-nic-or-bond.adoc[leveloffset=+1]
 
 include::../modules/proc-configuring-a-linux-bridge.adoc[leveloffset=+1]
 
-include::../modules/proc-attaching-a-pod-to-the-evpn-network.adoc[leveloffset=+1]
-
 include::../modules/proc-attaching-a-virtual-machine-to-the-evpn-network.adoc[leveloffset=+1]
 
 include::../modules/ref-example-ovn-kubernetes-localnet.adoc[leveloffset=+1]
