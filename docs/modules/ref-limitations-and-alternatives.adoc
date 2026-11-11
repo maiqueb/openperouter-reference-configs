@@ -42,8 +42,9 @@ reset and traffic drops.
 
 No published OpenShift or OVN-Kubernetes version matrix:: Upstream
 OpenPERouter does not publish a supported-version matrix for
-OVN-Kubernetes. Validate the bridge mapping, the localnet NAD behavior, and
-the node network configuration on your OpenShift version.
+OVN-Kubernetes. Validate the bridge mapping, the localnet
+`ClusterUserDefinedNetwork` behavior, and the node network configuration on
+your OpenShift version.
 
 OVN-Kubernetes owns `br-ex`:: In the shared single NIC model, `br-ex` and its
 uplink belong to OVN-Kubernetes. Do not add ports to `br-ex`, change its
@@ -60,7 +61,7 @@ OVN-Kubernetes localnet restrictions::
   not supported. Workloads cannot use a MAC address that differs from the one
   OVN-Kubernetes assigns, and a workload cannot receive frames for an
   arbitrary set of MAC addresses.
-* Enabling VLAN trunking in the NAD or in a CUDN does not extend to
+* Enabling VLAN trunking in the `ClusterUserDefinedNetwork` does not extend to
   OpenPERouter; the EVPN segment is still one Layer 2 domain per VNI.
 
 Linux bridge NAD is VM-only:: The repository NAD sets

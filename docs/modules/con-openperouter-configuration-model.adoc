@@ -9,7 +9,9 @@
 [role="_abstract"]
 OpenPERouter uses three custom resources. An `Underlay` describes how a node
 reaches the external fabric, an `L3VNI` describes a tenant VRF, and an `L2VNI`
-describes a Layer 2 segment and the host bridge that carries it.
+describes a Layer 2 segment and the host bridge that carries it. Multiple
+`L2VNI`s can share the same VRF - thus, multiple `L2VNI`s can point at the same
+`L3VNI`.
 
 .OpenPERouter resource relationships
 ....
@@ -76,7 +78,8 @@ spec:
 ----
 
 `nodeSelector`:: Selects the nodes that run the router configuration. The
-selector uses standard Kubernetes label selector semantics.
+selector uses standard Kubernetes label selector semantics. If you are using
+static IPAM, you should have one `Underlay` CR for each node.
 
 `asn`:: The autonomous system number that the cluster nodes use toward the
 external fabric. All nodes in one EVPN domain normally share it.
@@ -194,13 +197,6 @@ persistent `perouter` network namespace:
   `br-pe-110`, `vni110`, and a veth peer that attaches to the host bridge.
 * The anycast gateway address on the L2VNI bridge.
 
-The repository result in `linux-bridge/results/worker-0.md` shows this state
-for the Linux bridge example: the `red` VRF, `br-pe-100` and `vni100`,
-`br-pe-110` and `vni110`, the `pe-110` veth, and the gateway
-`192.170.1.1/24` on `br-pe-110`. The `br-pe-110` MTU in that result is 1450
-while the underlay interface is 1500, which reflects the VXLAN encapsulation
-overhead.
-
 == Where NMState ends and OpenPERouter begins
 
 `NodeNetworkConfigurationPolicy` is an `nmstate.io/v1` resource. It is not an
@@ -215,8 +211,8 @@ For an OVN-Kubernetes localnet bridge, the NMState policy must:
 * Disable Spanning Tree Protocol with `stp: false`. OVN-Kubernetes does not
   support STP on a localnet bridge.
 * Add the bridge mapping under `ovn.bridge-mappings`, for example
-  `localnet: datanet` and `bridge: ovsbr1`. The NAD
-  `physicalNetworkName` must match the `localnet` value.
+  `localnet: datanet` and `bridge: ovsbr1`. The `ClusterUserDefinedNetwork`
+  `localnet.physicalNetworkName` must match the `localnet` value.
 
 [role="_additional-resources"]
 == Additional resources

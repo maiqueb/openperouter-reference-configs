@@ -75,15 +75,15 @@ spec:
 ----
 
 Create `ovsbr2` and a second OVN-Kubernetes bridge mapping, for example
-`datanet2:ovsbr2`, and create a second localnet NAD with
-`physicalNetworkName: datanet2`. If the new segment belongs to a different
-tenant, create a separate L3VNI and VRF and reference that L3VNI in the
-`routingDomain`.
+`datanet2:ovsbr2`, and create a second `ClusterUserDefinedNetwork` with
+`localnet.physicalNetworkName: datanet2`. If the new segment belongs to a
+different tenant, create a separate L3VNI and VRF and reference that L3VNI in
+the `routingDomain`.
 
-For a VLAN on a shared trunk, OVN-Kubernetes applies the tag with `vlanID` in
-a NAD or with `layer2.vlan` in a CUDN. OpenPERouter v0.3.0 has no VLAN tag or
-trunk field in the L2VNI. A dedicated `L2Trunk` resource and an `L2VNI`
-`trunk` field were added after v0.3.0; they are not available with the
+For a VLAN on a shared trunk, OVN-Kubernetes applies the tag with
+`localnet.vlan` in the `ClusterUserDefinedNetwork`. OpenPERouter v0.3.0 has no
+VLAN tag or trunk field in the L2VNI. A dedicated `L2Trunk` resource and an
+`L2VNI` `trunk` field were added after v0.3.0; they are not available with the
 installation described in this assembly.
 
 == Dual-stack and IPv6

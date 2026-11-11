@@ -26,7 +26,7 @@ separate from the bridge that carries workload traffic.
 .Procedure
 
 . Create a macvlan or ipvlan device on top of a node interface or bridge. The
-`Underlay` resource uses a `CNIDevice` with a raw Multus CNI configuration.
+`Underlay` resource uses a `CNIDevice` with a raw CNI configuration.
 The CNI plugin creates the device in the router pod, and the parent interface
 stays in the host network namespace.
 +
@@ -43,7 +43,7 @@ types directly.
 --
 
 . Record the underlay values that you will use. The following example uses
-the dedicated bridge values from this assembly:
+the dedicated bridge values from this guide:
 +
 [source,yaml]
 ----

@@ -9,11 +9,14 @@
 [role="_abstract"]
 The following manifests implement the dedicated bridge model: a kernel bond
 for the underlay, an OVS bridge for the OVN-Kubernetes localnet, an EVPN L2VNI
-and L3VNI, a localnet NAD, and two virtual machines on different nodes.
+and L3VNI, a localnet `ClusterUserDefinedNetwork`, and two virtual machines on
+different nodes.
 
-The NNCP, NAD, and virtual machine manifests are based on
+The NNCP and virtual machine manifests are based on
 `localnet/dedicated-bridge/` and are usable as-is after you replace the node
-names and addresses. The OpenPERouter resources are converted from the legacy
+names and addresses. The network attachment is expressed as a
+`ClusterUserDefinedNetwork`, so OVN-Kubernetes creates the corresponding
+`NetworkAttachmentDefinition`. The OpenPERouter resources are converted from the legacy
 `openpe.openperouter.github.io/v1alpha1` API to
 `network.openperouter.io/v1alpha1`. The external router configuration is
 adapted from `linux-bridge/external-router/` because the dedicated bridge
@@ -190,22 +193,29 @@ spec:
 
 [source,yaml]
 ----
-apiVersion: k8s.cni.cncf.io/v1
-kind: NetworkAttachmentDefinition
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
 metadata:
   name: evpn
-  namespace: default
 spec:
-  config: |
-    {
-      "cniVersion": "0.3.1",
-      "name": "evpn",
-      "type": "ovn-k8s-cni-overlay",
-      "topology": "localnet",
-      "netAttachDefName": "default/evpn",
-      "physicalNetworkName": "datanet"
-    }
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: default
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: datanet
+      ipam:
+        mode: Disabled
 ----
+
+`ipam.mode: Disabled` makes OVN-Kubernetes assign only a MAC address and
+leave IP configuration to the workload. The virtual machines below set their
+own static addresses through cloud-init, and OpenPERouter provides the anycast
+gateway. The OVN-Kubernetes controller creates a
+`NetworkAttachmentDefinition` named `evpn` in the `default` namespace, so the
+`default/evpn` network name in the virtual machine manifests still applies.
 
 == Virtual machines
 
@@ -397,7 +407,7 @@ the NNCP:
 [source,terminal]
 ----
 $ oc delete vm vm-1 vm-2 -n default
-$ oc delete network-attachment-definition evpn -n default
+$ oc delete clusteruserdefinednetwork evpn
 $ oc delete l2vni layer2 l3vni red -n openperouter-system
 $ oc delete underlay underlay-worker0 underlay-worker1 -n openperouter-system
 $ oc delete nncp dedicated-linux-bond-iface

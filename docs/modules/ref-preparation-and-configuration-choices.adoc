@@ -21,143 +21,16 @@ so that you can confirm the assumptions before you start.
   `oc` CLI.
 * OVN-Kubernetes as the cluster network provider, with Multus available for
   secondary networks.
-* At least two worker nodes on the same underlay Layer 2 segment.
 * A dedicated NIC, a bond, a shared NIC, or a bridge that can carry the
   underlay and the EVPN workload segment. The underlay uses a macvlan or
   ipvlan device on top of that interface or bridge. The shared NIC model
   additionally requires that OVN-Kubernetes already use `br-ex`.
 * The Kubernetes NMState Operator installed and a `NMState` instance created.
 * OpenPERouter v0.3.0 installed in the `openperouter-system` namespace.
-* For virtual machines, OpenShift Virtualization installed and a
-  `HyperConverged` instance created.
+* OpenShift Virtualization installed and a `HyperConverged` instance created.
 * An external router that runs FRR and has one interface on the underlay
   network, one interface on the external client network, and VXLAN and BGP
   connectivity to the cluster nodes.
-
-[NOTE]
-====
-The checked-in `linux-bridge/` and `localnet/dedicated-bridge/` manifests use
-the older `openpe.openperouter.github.io/v1alpha1` API. They do not apply
-unchanged to an OpenPERouter v0.3.0 operator. The examples in this assembly are
-the converted equivalents. `localnet/br-ex/03-openperouter-logical-infra.yaml`
-and `localnet/br-ex/migration-networks/*` already use the current
-`network.openperouter.io/v1alpha1` API and need only a namespace substitution.
-====
-
-== Reference environment
-
-The reference environment is the environment in which the repository
-configurations were developed. It is not a supported-version matrix.
-
-[cols="2,2,4"]
-|===
-|Component |Version used in this repository |Notes
-
-|OpenShift Container Platform
-|4.22.1
-|Created with `kcli` as described in the repository `README.md`. Use a version
-that your organization supports.
-
-|OVN-Kubernetes
-|Bundled with the cluster
-|Provides the default cluster network and the localnet secondary network.
-
-|Multus
-|Bundled with the cluster
-|Attaches pods and virtual machines to secondary networks.
-
-|Kubernetes NMState Operator
-|`nmstate.io/v1`
-|Creates the OVS bridges, Linux bridges, bonds, and macvlan interfaces.
-
-|OpenShift Virtualization
-|Bundled operator channel for the cluster version
-|Required only for the virtual machine procedures.
-
-|OpenPERouter
-|v0.3.0
-|The API and examples target this release.
-
-|FRRouting
-|10.6.0
-|Used by the external router container image.
-
-|Linux kernel
-|5.18 or later
-|Recommended for full IPv6 EVPN support.
-|===
-
-== Choosing an attachment model
-
-The following table compares the models that this assembly documents. The
-choice affects the NAD type, the bridge owner, and whether pods or virtual
-machines can use the attachment.
-
-[cols="1,2,2,2"]
-|===
-|Criterion |OVN-K localnet, dedicated bridge |Shared single NIC or bond |Linux bridge
-
-|Bridge owner
-|OVN-Kubernetes, through a bridge mapping
-|OVN-Kubernetes for `br-ex`; OpenPERouter L2VNI on a separate `ovsbr1`
-|Kernel, through a `NodeNetworkConfigurationPolicy`
-
-|Workload types
-|Pods and virtual machines
-|Pods and virtual machines
-|Virtual machines with the reference NAD; pods need a different NAD
-
-|NAD type
-|`ovn-k8s-cni-overlay`, `topology: localnet`
-|`ovn-k8s-cni-overlay`, `topology: localnet`
-|`bridge`, with the KubeVirt bridge resource annotation
-
-|Dedicated NIC or bond
-|Recommended
-|Not required; the node has a single NIC or bond
-|Required for the OpenPERouter underlay in the reference configuration
-
-|VLAN trunking
-|One localnet network per VLAN; no trunk mode
-|One localnet network per VLAN; no trunk mode
-|One L2VNI per bridge; no VLAN tag field in the L2VNI
-
-|OVN-Kubernetes network policy
-|Yes
-|Yes for the localnet network
-|No; OVN-Kubernetes does not manage the kernel bridge
-
-|MAC spoof checking
-|Always on for the KubeVirt localnet path
-|Always on for the KubeVirt localnet path
-|Disabled in the reference NAD with `macspoofchk: false`
-
-|Promiscuous mode
-|Not supported
-|Not supported
-|Not required by the reference configuration
-
-|Live migration within the cluster
-|Supported
-|Supported
-|Supported
-
-|Choose this model when
-|You want OVN-Kubernetes to own the segment and you can dedicate a bridge
-|You have one NIC or bond and want to keep the default cluster network on
-`br-ex`
-|You want a plain kernel bridge and KubeVirt bridge binding independent of
-OVN-Kubernetes
-|===
-
-The shared single NIC model has two variants. In the repository pattern,
-VXLAN stretches the secondary Layer 2 segment over the underlay, so the
-physical uplink does not need a VLAN for that segment. In the VLAN trunk
-variant, which is adapted from the OpenShift Container Platform documentation,
-one VLAN carries the default cluster network and the remaining VLANs are
-exposed as separate OVN-Kubernetes localnet secondary networks. Those VLANs
-are not stretched by OpenPERouter unless you also create one bridge and one
-L2VNI per VLAN.
 
 == Design choices
 
