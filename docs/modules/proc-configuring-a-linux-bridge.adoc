@@ -226,14 +226,23 @@ $ oc exec -n openperouter-system <router-pod> -c frr -- \
 The `br-pe-110` interface carries the anycast gateway address
 `192.170.1.1/24`.
 
-. Confirm that the kernel bridge exists on the node and has the OpenPERouter
-veth port:
+. Confirm that the `NodeNetworkConfigurationPolicy` reports that the kernel
+bridge was created on every node:
 +
 [source,terminal]
 ----
-$ oc debug node/<worker-node> -- chroot /host \
-    bridge link show dev brvni110
+$ oc get nncp linux-bridge-perouter-vni-110 -o yaml
+$ oc get nnce -l nmstate.io/policy=linux-bridge-perouter-vni-110 -o yaml
 ----
++
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and `Degraded` must be `False`. Each enactment, one
+per matching node, must report `Available: True`; an available policy means
+that the `brvni110` bridge exists on the node. If the policy is degraded, the
+`message` of the enactment whose `Failing` condition is `True` reports the
+node error. OpenPERouter attaches its veth port to the bridge when it creates
+the L2VNI; the L2VNI status from the first verification step reports that
+state.
 
 [role="_additional-resources"]
 == Additional resources

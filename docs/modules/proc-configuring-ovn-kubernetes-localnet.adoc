@@ -85,16 +85,17 @@ In this variant, `bond1` is a kernel bond used only for the OpenPERouter
 underlay, and `ovsbr1` is a bridge with no physical uplink. VXLAN carries the
 workload Layer 2 segment, so `ovsbr1` does not need an uplink port.
 
-. Apply the policy and wait for it to converge:
+. Apply the policy and wait for its status to report that it converged:
 +
 [source,terminal]
 ----
 $ oc apply -f 01-bond-config-plus-ovs-bridge-for-localnet.yaml
 $ oc wait nncp dedicated-linux-bond-iface \
     --for=condition=Available --timeout=10m
-$ oc get nncp
-$ oc get nnce
 ----
++
+The `oc wait` command returns when the policy `Available` status condition is
+`True`. The verification steps read the full policy and enactment status.
 
 . Configure the underlay. Use a `CNIDevice` whose raw configuration creates a
 macvlan (or ipvlan) device on top of the node interface or bridge. In the
@@ -232,18 +233,22 @@ $ oc get underlay,l3vni,l2vni -n openperouter-system
 $ oc get pods -n openperouter-system -o wide
 ----
 
-. Confirm the OVS topology and bridge mapping on a worker node:
+. Confirm that the `NodeNetworkConfigurationPolicy` reports that the bridge
+and the OVN-Kubernetes bridge mapping were applied on every node:
 +
 [source,terminal]
 ----
-$ oc debug node/<worker-node> -- chroot /host ovs-vsctl show
-$ oc debug node/<worker-node> -- chroot /host \
-    ovs-vsctl get open . external_ids:ovn-bridge-mappings
+$ oc get nncp dedicated-linux-bond-iface -o yaml
+$ oc get nnce -l nmstate.io/policy=dedicated-linux-bond-iface -o yaml
 ----
 +
-The mapping must contain `datanet:ovsbr1`. The bridge must contain the
-`ovsbr1` internal port, a patch port that OVN-Kubernetes created, and the
-OpenPERouter veth port for VNI 110.
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and `Degraded` must be `False`. Each enactment, one
+per matching node, must report `Available: True`. When the policy is
+available, NMState applied the `ovsbr1` bridge and the `datanet:ovsbr1` OVN
+bridge mapping that the policy declares. If the policy is degraded, the
+`message` of the enactment whose `Failing` condition is `True` reports the
+node error.
 
 . Confirm that the EVPN VNIs are up in the router pod:
 +
@@ -255,17 +260,21 @@ $ oc exec -n openperouter-system <router-pod> -c frr -- \
 +
 The output lists VNI 100 as `L3` and VNI 110 as `L2`, both in VRF `red`.
 
-. Confirm that the localnet `ClusterUserDefinedNetwork` is available:
+. Confirm that the localnet `ClusterUserDefinedNetwork` is available by
+reading its status subresource:
 +
 [source,terminal]
 ----
-$ oc get clusteruserdefinednetwork evpn
-$ oc get network-attachment-definitions -A
+$ oc get clusteruserdefinednetwork evpn -o yaml
 ----
 +
-The `NetworkCreated` condition must be `True`, and the generated
-`NetworkAttachmentDefinition` must be present in the target namespace before
-you attach a workload.
+In `status.conditions`, the `NetworkCreated` condition must be `True` with
+reason `NetworkAttachmentDefinitionCreated`. Its `message` lists the
+namespaces where OVN-Kubernetes created the generated
+`NetworkAttachmentDefinition`; the network is ready to attach workloads when
+that list contains the target namespace. If the condition is `False`, the
+`reason` and `message` describe the failure, for example
+`NetworkAttachmentDefinitionSyncError`.
 
 [role="_additional-resources"]
 == Additional resources
