@@ -46,11 +46,7 @@ include::../modules/proc-attaching-a-virtual-machine-to-the-evpn-network.adoc[le
 
 include::../modules/ref-example-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 
-include::../modules/ref-example-shared-single-nic.adoc[leveloffset=+1]
-
 include::../modules/ref-example-linux-bridge.adoc[leveloffset=+1]
-
-include::../modules/ref-optional-follow-on-configuration.adoc[leveloffset=+1]
 
 include::../modules/ref-limitations-and-alternatives.adoc[leveloffset=+1]
 
