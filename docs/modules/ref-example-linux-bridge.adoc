@@ -402,6 +402,17 @@ exit
 
 == Verification
 
+Confirm first that NMState applied the bridge policy:
+
+[source,terminal]
+----
+$ oc get nncp linux-bridge-perouter-vni-110 -o yaml
+$ oc get nnce -l nmstate.io/policy=linux-bridge-perouter-vni-110 -o yaml
+----
+
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and each enactment must report `Available: True`.
+
 The repository test sequence is:
 
 [source,terminal]

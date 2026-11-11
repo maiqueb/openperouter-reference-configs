@@ -146,13 +146,22 @@ The loopback interface carries an address from the `tunnelEndpoint.cidrs`
 pool.
 
 . If you used NMState to create a bridge or bond, confirm that the policy
-converged on every node:
+converged by reading the status of the policy and its enactments:
 +
 [source,terminal]
 ----
-$ oc get nncp
-$ oc get nnce
+$ oc wait nncp <policy-name> --for=condition=Available --timeout=10m
+$ oc get nncp <policy-name> -o yaml
+$ oc get nnce -l nmstate.io/policy=<policy-name> -o yaml
 ----
 +
-Each `NodeNetworkConfigurationPolicy` must report `Available: True`, and each
-`NodeNetworkConfigurationEnactment` must report `Available: True`.
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and `Degraded` must be `False`. The `Available`
+message reports how many matching nodes were configured and notes any nodes
+that were ignored because they were not ready. If `Ignored` is `True` with
+reason `NoMatchingNode`, the policy `nodeSelector` matches no node. NMState
+creates one `NodeNetworkConfigurationEnactment` per matching node, named
+`<node>.<policy>`; each enactment must report `Available: True`, and its
+`status.policyGeneration` must match the policy `metadata.generation`. If the
+policy is not available, the enactment whose `Failing` condition is `True`
+contains the node error in its `message`.

@@ -34,5 +34,6 @@ $ oc get nmstate nmstate \
     -o custom-columns=NAME:.metadata.name,AVAILABLE:.status.conditions[?(@.type=="Available")].status
 ----
 +
-The `AVAILABLE` column must show `True`. The `oc get nncp` and `oc get nnce`
-commands return no resources until you create a policy.
+The `AVAILABLE` column must show `True`. The operator installs the
+`NodeNetworkConfigurationPolicy` and `NodeNetworkConfigurationEnactment` CRDs;
+neither has any objects until you create a policy.

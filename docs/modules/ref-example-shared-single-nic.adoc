@@ -304,13 +304,20 @@ bridge. v0.3.0 has no VLAN tag field in the L2VNI.
 
 [source,terminal]
 ----
-$ oc debug node/<worker-node> -- chroot /host \
-    ovs-vsctl get open . external_ids:ovn-bridge-mappings
-$ oc debug node/<worker-node> -- chroot /host ovs-vsctl show
+$ oc get nncp localnet-dedicated-bridge -o yaml
+$ oc get nnce -l nmstate.io/policy=localnet-dedicated-bridge -o yaml
+$ oc get clusteruserdefinednetwork evpn -o yaml
 $ oc exec -n openperouter-system <router-pod> -c frr -- ip addr show net1
 $ oc exec -n openperouter-system <router-pod> -c frr -- \
     vtysh -c 'show bgp l2vpn evpn summary'
 ----
+
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and each enactment must report `Available: True`.
+In `status.conditions` of the `ClusterUserDefinedNetwork`, `NetworkCreated`
+must be `True` with reason `NetworkAttachmentDefinitionCreated`. If you
+created the VLAN trunk network, repeat the `ClusterUserDefinedNetwork` check
+for `evpn-vlan-200`.
 
 [NOTE]
 ====
