@@ -114,14 +114,37 @@ $ oc apply -f underlay.yaml
 
 .Verification
 
-. Confirm that the `Underlay` resource was accepted and that the router pod
-selected a node:
+. Confirm that OpenPERouter accepted the `Underlay` on every node that runs a
+router pod:
 +
 [source,terminal]
 ----
-$ oc get underlay -n openperouter-system
-$ oc get pods -n openperouter-system -o wide
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
++
+OpenPERouter creates one `RouterNodeConfigurationStatus` per node, named after
+the node. Each entry must show `READY` as `True` and `DEGRADED` as `False`. In
+the status subresource, the `Ready` condition must be `True` with reason
+`ConfigurationSuccessful`, the `Degraded` condition must be `False`, and
+`status.failedResources` must be empty. To inspect the failing resources on a
+node, run:
++
+[source,terminal]
+----
+$ oc get routernodeconfigurationstatus <node-name> -n openperouter-system \
+    -o yaml
+----
++
+`status.failedResources` lists each failed resource with its `kind`, `name`,
+`reason`, and `message`. The `reason` is `ValidationFailed`,
+`DependencyFailed`, `OverlayAttachmentFailed`, or `FrrConfigurationFailed`,
+and the `kind` is `Underlay`, `L2VNI`, `L3VNI`, `L3Passthrough`, or
+`FrrConfiguration`. If the `Ready` condition instead reports the reason
+`UnderlayFailed`, underlay validation failed and OpenPERouter left the
+existing FRR configuration in place.
++
+Use `oc get pods -n openperouter-system -o wide` to identify the router pod
+for the following steps.
 
 . Confirm that the underlay interface has an address inside the router pod:
 +

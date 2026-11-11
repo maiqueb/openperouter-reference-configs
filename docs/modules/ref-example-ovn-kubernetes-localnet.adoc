@@ -394,7 +394,7 @@ exit
 $ oc get nncp dedicated-linux-bond-iface -o yaml
 $ oc get nnce -l nmstate.io/policy=dedicated-linux-bond-iface -o yaml
 $ oc get clusteruserdefinednetwork evpn -o yaml
-$ oc get underlay,l3vni,l2vni -n openperouter-system
+$ oc get routernodeconfigurationstatus -n openperouter-system
 $ oc exec -n openperouter-system <router-pod> -c frr -- \
     vtysh -c 'show evpn vni'
 $ oc exec -n openperouter-system <router-pod> -c frr -- \
@@ -405,7 +405,9 @@ $ podman exec frr vtysh -c 'show bgp l2vpn evpn summary'
 In `status.conditions` of the policy, `Available` must be `True` with reason
 `SuccessfullyConfigured`, and each enactment must report `Available: True`.
 In `status.conditions` of the `ClusterUserDefinedNetwork`, `NetworkCreated`
-must be `True` with reason `NetworkAttachmentDefinitionCreated`.
+must be `True` with reason `NetworkAttachmentDefinitionCreated`. Each
+`RouterNodeConfigurationStatus` must show `READY` as `True` and `DEGRADED` as
+`False`, with an empty `status.failedResources`.
 
 == Teardown
 

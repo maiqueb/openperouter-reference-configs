@@ -225,13 +225,23 @@ $ oc apply -f 03-localnet-cudn.yaml
 
 .Verification
 
-. Confirm that OpenPERouter accepted the resources:
+. Confirm that OpenPERouter accepted the resources by reading the node
+status:
 +
 [source,terminal]
 ----
-$ oc get underlay,l3vni,l2vni -n openperouter-system
-$ oc get pods -n openperouter-system -o wide
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
++
+Each node must show `READY` as `True` and `DEGRADED` as `False`, with the
+`Ready` condition `True` and an empty `status.failedResources`. If a resource
+fails, read the status of the affected node with `oc get
+routernodeconfigurationstatus <node-name> -n openperouter-system -o yaml`;
+`status.failedResources` lists the failed `Underlay`, `L3VNI`, or `L2VNI` with
+its reason and message.
++
+Use `oc get pods -n openperouter-system -o wide` to identify the router pod
+for the following steps.
 
 . Confirm that the `NodeNetworkConfigurationPolicy` reports that the bridge
 and the OVN-Kubernetes bridge mapping were applied on every node:

@@ -88,7 +88,7 @@ spec:
 This policy is optional for the current configuration. The `Underlay`
 `CNIDevice` creates the operative underlay interface, `net1`, and obtains its
 address through DHCP. If you apply the host macvlan policy, `macvlan0` remains
-unused by OpenPERouter; inspect `net1` when you verify the underlay.
+unused by OpenPERouter; the router pod uses `net1`.
 
 == Underlays, VNIs, and anycast gateway
 
@@ -307,7 +307,7 @@ bridge. v0.3.0 has no VLAN tag field in the L2VNI.
 $ oc get nncp localnet-dedicated-bridge -o yaml
 $ oc get nnce -l nmstate.io/policy=localnet-dedicated-bridge -o yaml
 $ oc get clusteruserdefinednetwork evpn -o yaml
-$ oc exec -n openperouter-system <router-pod> -c frr -- ip addr show net1
+$ oc get routernodeconfigurationstatus -n openperouter-system
 $ oc exec -n openperouter-system <router-pod> -c frr -- \
     vtysh -c 'show bgp l2vpn evpn summary'
 ----
@@ -317,7 +317,8 @@ In `status.conditions` of the policy, `Available` must be `True` with reason
 In `status.conditions` of the `ClusterUserDefinedNetwork`, `NetworkCreated`
 must be `True` with reason `NetworkAttachmentDefinitionCreated`. If you
 created the VLAN trunk network, repeat the `ClusterUserDefinedNetwork` check
-for `evpn-vlan-200`.
+for `evpn-vlan-200`. Each `RouterNodeConfigurationStatus` must show `READY` as
+`True` and `DEGRADED` as `False`, with an empty `status.failedResources`.
 
 [NOTE]
 ====

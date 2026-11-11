@@ -189,15 +189,20 @@ $ oc apply -f 03-vni-linux-bridge-nad.yaml
 
 .Verification
 
-. Confirm that OpenPERouter created the VNI objects:
+. Confirm that OpenPERouter accepted the VNI objects by reading the node
+status:
 +
 [source,terminal]
 ----
-$ oc get l2vni red-110 -n openperouter-system -o yaml
-$ oc get l3vni red-100 -n openperouter-system -o yaml
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
 +
-The L2VNI status must report that the node configuration is ready.
+Each node must show `READY` as `True` and `DEGRADED` as `False`, with the
+`Ready` condition `True` and an empty `status.failedResources`. This confirms
+that OpenPERouter applied the L3VNI and the L2VNI, and that it attached
+`br-pe-110` to the `brvni110` bridge. If a resource fails, read the status of
+the affected node with `oc get routernodeconfigurationstatus <node-name> -n
+openperouter-system -o yaml`.
 
 . Confirm the EVPN state in the router pod:
 +

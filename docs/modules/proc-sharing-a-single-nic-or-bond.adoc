@@ -262,14 +262,18 @@ The policy does not modify the OVN-Kubernetes-owned `physnet:br-ex` mapping.
 If the policy is degraded, the `message` of the enactment whose `Failing`
 condition is `True` reports the node error.
 
-. Confirm that the underlay interface in the router pod is `net1`, not
-`macvlan0`:
+. Confirm that OpenPERouter accepted the `Underlay` and the VNIs by reading the
+node status:
 +
 [source,terminal]
 ----
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
-    ip addr show net1
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
++
+Each node must show `READY` as `True` and `DEGRADED` as `False`, with the
+`Ready` condition `True` and an empty `status.failedResources`. When the status
+is healthy, the CNI plugin created the underlay interface `net1` from the
+`Underlay` raw configuration.
 +
 The repository also contains `02-macvlan-underlay.yaml`, which creates a
 host macvlan named `macvlan0` on `br-ex`. That policy is optional for the
