@@ -8,10 +8,14 @@
 You can connect pods and virtual machines on an OpenShift cluster to an
 external Layer 2 segment by running OpenPERouter on the worker nodes. The
 workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
-external router and its clients can reach the workloads by IP address. After
-you complete this assembly, you have an EVPN/VXLAN secondary network carrying
-workload traffic, using OVN-Kubernetes localnet on a dedicated bridge, a Linux
-bridge, or a shared NIC or bond.
+external router and its clients can reach the workloads by IP address. When you
+follow this guide, you create an EVPN/VXLAN secondary network carrying
+workload traffic across this extended layer 2 segment, using any of the
+following physical network options:
+
+* OVN-Kubernetes localnet topology on a dedicated bridge
+* OVN-Kubernetes localnet topology sharing `br-ex`
+* A dedicated Linux bridge
 
 toc::[]
 
