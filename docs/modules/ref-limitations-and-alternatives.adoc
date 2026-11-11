@@ -13,38 +13,13 @@ not fit your environment.
 
 == Limitations
 
-Project maturity:: OpenPERouter is an early-stage project. Treat the version
-that you install as a pinned dependency and validate every upgrade against
-your own fabric. This repository pins v0.3.0.
-
-API drift:: The checked-in `linux-bridge/` and `localnet/dedicated-bridge/`
-manifests use the legacy `openpe.openperouter.github.io/v1alpha1` API. The
-examples in this assembly use the v0.3.0 `network.openperouter.io/v1alpha1`
-API. Resource names and fields changed between the two APIs, and some
-resources gained required fields. Plan to convert any manifest that you copy
-from the repository.
-
-Network namespace durability:: OpenPERouter keeps its kernel state, including
-FRR and the tenant VRF, in a persistent `/var/run/netns/perouter` namespace
-that is bind mounted from the host. The state survives a restart of the FRR
-container, because the namespace is not destroyed with the pod. A node reboot
-or any operation that rebuilds the namespace from scratch does destroy that
-state, and the EVPN data plane is unavailable until OpenPERouter recreates
-the namespace and the routes reconverge. Expect an outage in the range of
-several seconds to tens of seconds; the exact duration depends on the number
-of VNIs and on the BGP timers.
+Project maturity:: **TODO**
 
 Graceful Restart:: OpenPERouter and its neighbors must both support and enable
 Graceful Restart for a restart to be hitless. The `Underlay` resource has a
 `gracefulRestart` field. If the external router does not advertise the
 capability, or if the restart exceeds the configured timer, the sessions
 reset and traffic drops.
-
-No published OpenShift or OVN-Kubernetes version matrix:: Upstream
-OpenPERouter does not publish a supported-version matrix for
-OVN-Kubernetes. Validate the bridge mapping, the localnet
-`ClusterUserDefinedNetwork` behavior, and the node network configuration on
-your OpenShift version.
 
 OVN-Kubernetes owns `br-ex`:: In the shared single NIC model, `br-ex` and its
 uplink belong to OVN-Kubernetes. Do not add ports to `br-ex`, change its
