@@ -173,7 +173,16 @@ equally deterministic.
 
 ## 4. Implementation plan
 
-### Setup sequence
+We are only showing the setup sequence for phase 3, which allows for vlan aware
+bridges, and thus allows for supporting tests with VLANs.
+
+The exact manifests used for phase 2 are listed in: [phases 1–2 — four shared untagged bridges](hcp-qe-platform-reference-crs.md#phases-12--four-shared-untagged-bridges)
+
+The exact manifests used for phase 3 are listed in: [phase 3 — shared VLAN-aware bridge and trunk](hcp-qe-platform-reference-crs.md#phase-3--shared-vlan-aware-bridge-and-trunk)
+
+For clarity, the starpup sequence for phase 3 is described below.
+
+### Setup sequence (phase 3)
 
 The work splits in two: the **platform overlay**, created once by the admin
 and shared by every guest cluster, and the **guest-cluster wiring**, repeated
@@ -184,7 +193,7 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
 
 #### Platform setup (admin, once)
 
-P0. **Underlays.** One `CNIDevice` per node, selected by
+- P0. **Underlays.** One `CNIDevice` per node, selected by
    `kubernetes.io/hostname`: one RR object per control-plane node (it runs in
    the router pod there) and one datapath object per worker. The macvlan plugin
    with static IPAM creates the interface inside the router netns, so no host
@@ -194,18 +203,18 @@ P0. **Underlays.** One `CNIDevice` per node, selected by
    `clusterID`, peer through explicit `address` neighbors, and every client
    lists all their addresses; DHCP does not lift the per-node requirement
    without a pinned per-node MAC.
-P1. **Bridge NNCP.** Create the shared host bridge VLAN-aware on every worker
+- P1. **Bridge NNCP.** Create the shared host bridge VLAN-aware on every worker
    a guest node may run on or migrate to, with an explicit `mtu` of underlay
    − 50. nmstate has no standalone VLAN-filtering switch, so the NNCP declares
    the bridge with a **dummy port carrying a `vlan` block**; that makes
    NetworkManager enable `vlan-filtering` at creation, and keeping the dummy
    keeps it on for the bridge's life.
-P2. **Overlay CRs.** Create the `L2Trunk` and the 20 `L2VNI`s in the
+- P2. **Overlay CRs.** Create the `L2Trunk` and the 20 `L2VNI`s in the
    OpenPERouter namespace, `<router-ns>`. Cross-object references such as
    `L2VNI.spec.trunk.name` are same-namespace only, so the trunk belongs
    there too. OpenPERouter creates the trunk host veth and enslaves it to the
    bridge.
-P3. **Trunk port membership.** Re-apply the same NNCP with the trunk veth
+- P3. **Trunk port membership.** Re-apply the same NNCP with the trunk veth
    added as a bridge port: `mode: trunk`,
    `trunk-tags: [{id-range: {min: 1000, max: 1019}}]`, no `tag`. nmstate can
    only describe a port that already exists, so this must follow P2; the
@@ -215,10 +224,10 @@ P3. **Trunk port membership.** Re-apply the same NNCP with the trunk veth
 
 #### Per-cluster setup (QE framework)
 
-C1. **Namespace.** Create `clusters-<name>`. HyperShift only creates it with
+- C1. **Namespace.** Create `clusters-<name>`. HyperShift only creates it with
    the `HostedCluster` (C4), yet C2 creates NADs in it and
    `additionalNetworks` must reference NADs from the guest cluster's namespace.
-C2. **NADs.** Create four `NetworkAttachmentDefinition`s, one per NIC slot, in
+- C2. **NADs.** Create four `NetworkAttachmentDefinition`s, one per NIC slot, in
    `clusters-<name>`. Each carries `type: bridge`,
    `bridge: <shared host bridge>`, `macspoofchk: false`,
    `disableContainerInterface: true`, its own `vlanTrunk` slice, its native
@@ -226,10 +235,10 @@ C2. **NADs.** Create four `NetworkAttachmentDefinition`s, one per NIC slot, in
    `k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/<bridge>`
    annotation. The native tag stays out of `vlanTrunk`: a tag cannot be both
    native and tagged, and adding it to the slice clears its native flags.
-C3. **NodePool.** Reference the four NADs from
+- C3. **NodePool.** Reference the four NADs from
    `NodePool.spec.platform.kubevirt.additionalNetworks`. HyperShift always
    uses bridge binding for these interfaces.
-C4. **Create the guest cluster** (`HostedCluster` + `NodePool`). The NICs are
+- C4. **Create the guest cluster** (`HostedCluster` + `NodePool`). The NICs are
    present on each VM at first boot; hot-plug is not needed, and
    `additionalNetworks` cannot be changed afterwards.
 
@@ -305,12 +314,6 @@ that name as a per-node extended resource wherever the bridge exists, and
 virt-launcher requests it, so KubeVirt schedules the source pod and the
 migration target only onto prepared nodes. Without it a VM can migrate to a
 worker with no bridge and lose its four NICs.
-
-The annotation covers the bridge alone: the trunk, its port membership and the
-20 segments must already be reconciled on every eligible worker. P3 is
-therefore per-worker, not a one-off on busy nodes; a new guest cluster adds no
-per-worker work, but a newly joined worker needs P1 and P3 re-applied. Migration
-is gated on readiness for all eligible workers.
 
 ### Teardown
 
@@ -421,7 +424,6 @@ number of concurrent guest clusters.
 | NNCP re-apply on node join | New worker never gets its bridge or trunk membership; policy fails until re-applied | Admin re-runs P1 and P3 per new node |
 | Slice mismatch | A tag outside a NIC's slice is dropped at ingress | Configure each job with the slice matching its NIC |
 | Migration onto an unprepared worker | The guest node moves to a worker with no bridge, or with a bridge and no trunk, and its four NICs come up with no dataplane | Mandatory `resourceName` annotation on all four NADs **and** per-node readiness on every worker a guest node may reach |
-| Duplicate VNI (future per-cluster model) | Two segments merge in BGP, silently | Fabric-wide allocator owned by the non-admin API; cluster-wide validation on the OpenPERouter side |
 
 ## 7. Open items
 
