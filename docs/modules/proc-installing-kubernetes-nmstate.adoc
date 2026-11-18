@@ -7,74 +7,26 @@
 = Installing Kubernetes NMState
 
 [role="_abstract"]
-Install the Kubernetes NMState Operator and create an `NMState` instance. The
-procedures in this assembly use `NodeNetworkConfigurationPolicy` resources to
-create OVS bridges, Linux bridges, bonds, and macvlan interfaces.
+The procedures in this assembly require the Kubernetes NMState Operator and an
+`NMState` instance. The Operator provides the `NodeNetworkConfigurationPolicy`
+resources that this assembly uses to create OVS bridges, Linux bridges, bonds,
+and macvlan interfaces.
 
 .Prerequisites
 
-* You have cluster-admin access to the cluster.
-* The cluster can pull images from the Red Hat Operators catalog.
+* You have `cluster-admin` access to the cluster.
 
 .Procedure
 
-. Create the operator namespace:
-+
-[source,terminal]
-----
-$ oc create namespace openshift-nmstate
-----
-
-. Create a subscription for the Kubernetes NMState Operator:
-+
-[source,yaml]
-----
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: kubernetes-nmstate-operator
-  namespace: openshift-nmstate
-spec:
-  channel: stable
-  name: kubernetes-nmstate-operator
-  source: redhat-operators
-  sourceNamespace: openshift-marketplace
-  installPlanApproval: Automatic
-----
-+
-You can also install the operator from the software catalog in the OpenShift
-Container Platform web console.
-
-. Wait for the operator to install:
-+
-[source,terminal]
-----
-$ oc get csv -n openshift-nmstate \
-    -o custom-columns=NAME:.metadata.name,PHASE:.status.phase
-----
-+
-The phase must be `Succeeded` before you continue.
-
-. Create the `NMState` instance:
-+
-[source,yaml]
-----
-apiVersion: nmstate.io/v1
-kind: NMState
-metadata:
-  name: nmstate
-----
-+
-Apply the resource:
-+
-[source,terminal]
-----
-$ oc apply -f nmstate.yaml
-----
+. Install the Operator and create the `NMState` instance by following
+link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/networking_operators/k8s-nmstate-about-the-k8s-nmstate-operator#installing-the-kubernetes-nmstate-operator-cli[Installing the Kubernetes NMState Operator]
+in the OpenShift Container Platform 4.22 documentation. You can use either the
+web console or the CLI; the instance must be named `nmstate`. Return to this
+assembly after the instance is available.
 
 .Verification
 
-. Confirm that the `NMState` instance is available:
+* Confirm that the instance is available:
 +
 [source,terminal]
 ----
@@ -82,16 +34,6 @@ $ oc get nmstate nmstate \
     -o custom-columns=NAME:.metadata.name,AVAILABLE:.status.conditions[?(@.type=="Available")].status
 ----
 +
-The `AVAILABLE` column must show `True`.
-
-. Confirm that the NMState handlers are running on the worker nodes:
-+
-[source,terminal]
-----
-$ oc get pods -n openshift-nmstate
-$ oc get nncp
-$ oc get nnce
-----
-+
-The `nmstate-handler` pods run as a DaemonSet on the nodes. `nncp` and `nnce`
-are empty until you create a `NodeNetworkConfigurationPolicy`.
+The `AVAILABLE` column must show `True`. The operator installs the
+`NodeNetworkConfigurationPolicy` and `NodeNetworkConfigurationEnactment` CRDs;
+neither has any objects until you create a policy.

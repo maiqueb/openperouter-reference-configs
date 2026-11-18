@@ -5,13 +5,14 @@
 :oc-first: oc
 
 [role="_abstract"]
-You can connect pods and virtual machines on an OpenShift cluster to an
+You can connect virtual machines on an OpenShift cluster to an
 external Layer 2 segment by running OpenPERouter on the worker nodes. The
 workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
 external router and its clients can reach the workloads by IP address. When you
 follow this guide, you create an EVPN/VXLAN secondary network carrying
 workload traffic across this extended layer 2 segment, using any of the
-following physical network options:
+physical network options described in
+xref:workload-attachment-models_{context}[Workload attachment models]:
 
 * OVN-Kubernetes localnet topology on a dedicated bridge
 * OVN-Kubernetes localnet topology sharing `br-ex`
@@ -20,8 +21,9 @@ following physical network options:
 toc::[]
 
 The procedures follow the dependency order of the components: install the
-operators, prepare the node underlay and the external router, define the
-Layer 3 and Layer 2 VNIs, then attach pods and virtual machines.
+operators, check the preconfigured fabric prerequisites, prepare the node
+underlay and configure the OpenPERouter peer settings, define the Layer 3 and
+Layer 2 VNIs, then attach virtual machines.
 
 include::../modules/con-about-openperouter-workload-networking.adoc[leveloffset=+1]
 
@@ -31,9 +33,9 @@ include::../modules/proc-installing-kubernetes-nmstate.adoc[leveloffset=+1]
 
 include::../modules/proc-installing-openperouter.adoc[leveloffset=+1]
 
-include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
-
 include::../modules/con-openperouter-configuration-model.adoc[leveloffset=+1]
+
+include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
 
 include::../modules/proc-configuring-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 
@@ -41,17 +43,11 @@ include::../modules/proc-sharing-a-single-nic-or-bond.adoc[leveloffset=+1]
 
 include::../modules/proc-configuring-a-linux-bridge.adoc[leveloffset=+1]
 
-include::../modules/proc-attaching-a-pod-to-the-evpn-network.adoc[leveloffset=+1]
-
 include::../modules/proc-attaching-a-virtual-machine-to-the-evpn-network.adoc[leveloffset=+1]
 
 include::../modules/ref-example-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 
-include::../modules/ref-example-shared-single-nic.adoc[leveloffset=+1]
-
 include::../modules/ref-example-linux-bridge.adoc[leveloffset=+1]
-
-include::../modules/ref-optional-follow-on-configuration.adoc[leveloffset=+1]
 
 include::../modules/ref-limitations-and-alternatives.adoc[leveloffset=+1]
 

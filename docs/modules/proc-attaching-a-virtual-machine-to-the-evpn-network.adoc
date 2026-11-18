@@ -17,11 +17,13 @@ you use OVN-Kubernetes localnet or a Linux bridge.
 * OpenShift Virtualization is installed and a `HyperConverged` instance is
   available.
 * You have created a network attachment for the chosen model:
-  ** An OVN-Kubernetes localnet NAD from the dedicated bridge or shared single
-  NIC procedure.
+  ** An OVN-Kubernetes localnet `ClusterUserDefinedNetwork` from the dedicated
+  bridge or shared single NIC procedure.
   ** The `bridge` NAD from the Linux bridge procedure.
-* The NAD is in the same namespace as the virtual machine, or the VM uses the
-  fully qualified `<namespace>/<name>` form.
+* For the OVN-Kubernetes localnet model, the `ClusterUserDefinedNetwork`
+  `namespaceSelector` matches the virtual machine namespace. OVN-Kubernetes
+  creates a `NetworkAttachmentDefinition` with the same name in that
+  namespace.
 * You have a container disk image and, optionally, an SSH key secret.
 * The virtual machines can be scheduled on nodes that run the OpenPERouter
   router pod.
@@ -73,14 +75,16 @@ spec:
                   gateway4: 192.170.1.1
 ----
 
-. For an OVN-Kubernetes localnet attachment, set `networkName` to the localnet
-NAD and use only the gateway in the guest configuration:
+. For an OVN-Kubernetes localnet attachment, set `networkName` to the
+`NetworkAttachmentDefinition` that OVN-Kubernetes created for the
+`ClusterUserDefinedNetwork`, and use only the gateway in the guest
+configuration:
 +
 [source,yaml]
 ----
       networks:
         - multus:
-            networkName: evpn
+            networkName: <namespace>/evpn
           name: evpn
 ----
 +
@@ -106,7 +110,7 @@ cloud-init network data:
               state: up
       networks:
         - multus:
-            networkName: evpn-l2vni-110
+            networkName: <namespace>/evpn-l2vni-110
           name: evpn
       volumes:
         - name: cloudinitdisk
@@ -138,17 +142,19 @@ gateway:
                     - 192.170.1.3/24
                   gateway4: 192.170.1.1
                   routes:
-                    - to: 192.169.1.0/24
+                    - to: <external-client-network>
                       via: 192.170.1.1
 ----
 +
 Without this route, reply traffic to the external client can follow the
 default route on the pod network instead of the EVPN interface. If the EVPN
 interface is the only interface, or if it is the default route, the return
-route is not required.
+route is not required. Replace `<external-client-network>` with the CIDR of the
+network behind the external router.
 
-. Schedule the virtual machines on different nodes so that the path uses
-VXLAN. Use `nodeSelector` or pod anti-affinity:
+. If the cluster has more than one node, schedule the virtual machines on
+different nodes so that the path uses VXLAN. On a single-node cluster, the
+workload stays on the local bridge. Use `nodeSelector` or pod anti-affinity:
 +
 [source,yaml]
 ----
@@ -176,7 +182,7 @@ or:
 +
 [source,terminal]
 ----
-$ oc apply -f vm.yaml
+$ oc apply -n <namespace> -f vm.yaml
 $ oc wait vm/vm-1 -n <namespace> \
     --for=condition=Ready --timeout=10m
 $ oc wait vmi/vm-1 -n <namespace> \
@@ -196,7 +202,8 @@ $ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
 The EVPN interface must have the static address and the gateway from the
 cloud-init data.
 
-. Confirm connectivity to a peer virtual machine on the other node:
+. If you scheduled a peer virtual machine on another node, confirm
+connectivity to it:
 +
 [source,terminal]
 ----
@@ -210,20 +217,25 @@ external client:
 [source,terminal]
 ----
 $ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
-    ping -c 3 192.170.1.100
+    ping -c 3 <external-router-ip>
 $ virtctl ssh -n <namespace> fedora@vm/vm-1 -- \
-    ping -c 3 192.169.1.25
+    ping -c 3 <external-client-ip>
 ----
++
+Replace `<external-router-ip>` with the external router address on the workload
+segment and `<external-client-ip>` with the address of a client behind the
+external fabric.
 
-. Confirm that the external router sees the virtual machine MAC and IP:
+. Confirm that the external EVPN/BGP fabric contains a Type-2 route with the
+virtual machine MAC address and its IP address binding.
++
+If you use the containerized FRR router from the reference lab, you can check
+this from the lab host:
 +
 [source,terminal]
 ----
 $ podman exec frr vtysh -c 'show bgp l2vpn evpn route type 2'
 ----
-+
-The Type-2 route table must contain the virtual machine MAC address and its
-IP address binding.
 
 [NOTE]
 ====

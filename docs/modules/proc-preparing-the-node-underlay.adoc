@@ -26,7 +26,7 @@ separate from the bridge that carries workload traffic.
 .Procedure
 
 . Create a macvlan or ipvlan device on top of a node interface or bridge. The
-`Underlay` resource uses a `CNIDevice` with a raw Multus CNI configuration.
+`Underlay` resource uses a `CNIDevice` with a raw CNI configuration.
 The CNI plugin creates the device in the router pod, and the parent interface
 stays in the host network namespace.
 +
@@ -43,7 +43,7 @@ types directly.
 --
 
 . Record the underlay values that you will use. The following example uses
-the dedicated bridge values from this assembly:
+the dedicated bridge values from this guide:
 +
 [source,yaml]
 ----
@@ -114,14 +114,37 @@ $ oc apply -f underlay.yaml
 
 .Verification
 
-. Confirm that the `Underlay` resource was accepted and that the router pod
-selected a node:
+. Confirm that OpenPERouter accepted the `Underlay` on every node that runs a
+router pod:
 +
 [source,terminal]
 ----
-$ oc get underlay -n openperouter-system
-$ oc get pods -n openperouter-system -o wide
+$ oc get routernodeconfigurationstatus -n openperouter-system
 ----
++
+OpenPERouter creates one `RouterNodeConfigurationStatus` per node, named after
+the node. Each entry must show `READY` as `True` and `DEGRADED` as `False`. In
+the status subresource, the `Ready` condition must be `True` with reason
+`ConfigurationSuccessful`, the `Degraded` condition must be `False`, and
+`status.failedResources` must be empty. To inspect the failing resources on a
+node, run:
++
+[source,terminal]
+----
+$ oc get routernodeconfigurationstatus <node-name> -n openperouter-system \
+    -o yaml
+----
++
+`status.failedResources` lists each failed resource with its `kind`, `name`,
+`reason`, and `message`. The `reason` is `ValidationFailed`,
+`DependencyFailed`, `OverlayAttachmentFailed`, or `FrrConfigurationFailed`,
+and the `kind` is `Underlay`, `L2VNI`, `L3VNI`, `L3Passthrough`, or
+`FrrConfiguration`. If the `Ready` condition instead reports the reason
+`UnderlayFailed`, underlay validation failed and OpenPERouter left the
+existing FRR configuration in place.
++
+Use `oc get pods -n openperouter-system -o wide` to identify the router pod
+for the following steps.
 
 . Confirm that the underlay interface has an address inside the router pod:
 +
@@ -146,13 +169,22 @@ The loopback interface carries an address from the `tunnelEndpoint.cidrs`
 pool.
 
 . If you used NMState to create a bridge or bond, confirm that the policy
-converged on every node:
+converged by reading the status of the policy and its enactments:
 +
 [source,terminal]
 ----
-$ oc get nncp
-$ oc get nnce
+$ oc wait nncp <policy-name> --for=condition=Available --timeout=10m
+$ oc get nncp <policy-name> -o yaml
+$ oc get nnce -l nmstate.io/policy=<policy-name> -o yaml
 ----
 +
-Each `NodeNetworkConfigurationPolicy` must report `Available: True`, and each
-`NodeNetworkConfigurationEnactment` must report `Available: True`.
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and `Degraded` must be `False`. The `Available`
+message reports how many matching nodes were configured and notes any nodes
+that were ignored because they were not ready. If `Ignored` is `True` with
+reason `NoMatchingNode`, the policy `nodeSelector` matches no node. NMState
+creates one `NodeNetworkConfigurationEnactment` per matching node, named
+`<node>.<policy>`; each enactment must report `Available: True`, and its
+`status.policyGeneration` must match the policy `metadata.generation`. If the
+policy is not available, the enactment whose `Failing` condition is `True`
+contains the node error in its `message`.
