@@ -15,8 +15,8 @@ workload traffic across this extended layer 2 segment, using any of the
 physical network options described in
 xref:workload-attachment-models_{context}[Workload attachment models]:
 
-* OVN-Kubernetes localnet topology on a dedicated bridge
-* OVN-Kubernetes localnet topology sharing `br-ex`
+* Sharing the default `br-ex` Open vSwitch bridge
+* A dedicated Open vSwitch bridge
 * A dedicated Linux bridge
 
 toc::[]
