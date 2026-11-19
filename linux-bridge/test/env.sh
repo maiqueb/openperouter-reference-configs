@@ -16,13 +16,16 @@ UNDERLAY_PREFIX="16"
 # The external router's net1-ext address is discovered at setup time (podman
 # inspect) and used as the BGP neighbor.
 
-# Cluster nodes
-NODE0_HOSTNAME="multi-homing-worker-0"
-NODE0="multi-homing-worker-0.maiqueb.org"
-NET1_MVLN_NODE0_IP="10.200.11.50"
+# Cluster nodes. These defaults match the reference lab; override them with
+# --node0/--node1 or the NODE0/NODE1 environment variables.
+DEFAULT_NODE0="multi-homing-worker-0.maiqueb.org"
+DEFAULT_NODE1="multi-homing-worker-1.maiqueb.org"
+NODE0="${NODE0:-$DEFAULT_NODE0}"
+NODE1="${NODE1:-$DEFAULT_NODE1}"
+NODE0_HOSTNAME="${NODE0_HOSTNAME:-${NODE0%%.*}}"
+NODE1_HOSTNAME="${NODE1_HOSTNAME:-${NODE1%%.*}}"
 
-NODE1_HOSTNAME="multi-homing-worker-1"
-NODE1="multi-homing-worker-1.maiqueb.org"
+NET1_MVLN_NODE0_IP="10.200.11.50"
 NET1_MVLN_NODE1_IP="10.200.11.51"
 
 # ASNs
@@ -89,3 +92,23 @@ VMS_KEY="$(realpath ~/.ssh/kcli)"
 
 # Aggregated entities for teardown
 CONTAINERS=($EXT_FRR_NAME $EXT_APP_NAME)
+
+# Parse harness options shared by the scripts. Unknown options are left in
+# REMAINING_ARGS so each script can handle its own flags.
+parse_harness_args() {
+  REMAINING_ARGS=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --node0)
+        [[ $# -ge 2 ]] || { echo "missing value for --node0" >&2; exit 1; }
+        NODE0="$2"; shift 2 ;;
+      --node1)
+        [[ $# -ge 2 ]] || { echo "missing value for --node1" >&2; exit 1; }
+        NODE1="$2"; shift 2 ;;
+      *)
+        REMAINING_ARGS+=("$1"); shift ;;
+    esac
+  done
+  NODE0_HOSTNAME="${NODE0%%.*}"
+  NODE1_HOSTNAME="${NODE1%%.*}"
+}

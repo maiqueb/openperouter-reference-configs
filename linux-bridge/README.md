@@ -27,6 +27,16 @@ The scripts assume the following podman networks already exist:
 All parameters live here: node names, underlay addresses, external router
 address, VM IPs and SSH keys. Adjust it to your environment.
 
+The worker node names default to `multi-homing-worker-0.maiqueb.org` and
+`multi-homing-worker-1.maiqueb.org`. Override them with `--node0`/`--node1`
+(or the `NODE0`/`NODE1` environment variables); the short hostname used in the
+`Underlay` object names is derived from the first label of each FQDN:
+
+```bash
+./test/setup.sh --node0 worker-a.example.com --node1 worker-b.example.com
+./test/test.sh  --node0 worker-a.example.com --node1 worker-b.example.com --restart-vms
+```
+
 ## `test/setup.sh`
 - Builds the external-router image from `../external-router/Containerfile`.
 - Starts the external router with:

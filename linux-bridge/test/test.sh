@@ -6,6 +6,15 @@ SCRIPT_PATH=$(dirname "$(realpath "$0")")
 DIR=$(dirname $SCRIPT_PATH)
 source $SCRIPT_PATH/env.sh
 
+parse_harness_args "$@"
+RESTART_VMS=false
+for arg in "${REMAINING_ARGS[@]}"; do
+  case "$arg" in
+    --restart-vms) RESTART_VMS=true ;;
+    *) echo "FATAL: unknown argument [$arg]" >&2; exit 1 ;;
+  esac
+done
+
 echo "INFO: Generate NAD manifests:"
 (
   export VNI_BR_NAD_NAME=$VNI_BR_NAD_NAME \
@@ -44,7 +53,7 @@ echo "INFO: Create test workloads"
 oc -n $TEST_NS apply -f $WORKLOADS_MANIFEST
 
 # restart VMs to ensure NAD changes take effect
-if [[ $1 == "--restart-vms" ]]; then
+if $RESTART_VMS; then
   echo "INFO: Restarting VMs"
   virtctl -n $TEST_NS restart $VM1_NAME
   virtctl -n $TEST_NS restart $VM2_NAME

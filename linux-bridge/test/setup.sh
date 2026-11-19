@@ -5,6 +5,12 @@ set -e
 SCRIPT_PATH=$(dirname "$(realpath "$0")")
 source $SCRIPT_PATH/env.sh
 
+parse_harness_args "$@"
+if [[ ${#REMAINING_ARGS[@]} -gt 0 ]]; then
+  echo "FATAL: unknown arguments: ${REMAINING_ARGS[*]}" >&2
+  exit 1
+fi
+
 require_podman_network() {
   if ! podman network inspect "$1" >/dev/null 2>&1; then
     echo "FATAL: podman network [$1] not found" >&2
