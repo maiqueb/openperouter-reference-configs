@@ -62,7 +62,6 @@ spec:
     matchLabels:
       kubernetes.io/hostname: <cp-node>
   asn: <asn>
-  routerIDCIDR: <rr-router-id-cidr>
   interfaces:
     - type: CNIDevice
       cniDevice:
@@ -79,8 +78,7 @@ spec:
                 type: static
                 addresses:
                   - address: <rr-ip>/<prefix>
-  routeReflector:
-    clusterID: <cluster-id>
+  routeReflector: {}
   neighbors:
     - type: Internal
       listenRange: <underlay-subnet>
