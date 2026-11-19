@@ -56,9 +56,11 @@ the VLAN-dependent tests (section 5).
    clusters deliberately share each segment.
 3. **L2 only in the initial delivery.** Segments are plain L2; internal
    routing (subnet, anycast gateway and VRF per segment) is deferred.
-4. **Jumbo end to end.** The guest cluster's OVN-K MTU must reach the QE floor
-   of **7850**, which is underlay MTU minus VXLAN (50) minus the guest's own
-   OVN-K overhead (100).
+4. **Jumbo on two independent MTU paths.** The spare NICs are plain Ethernet
+   over one VXLAN hop, so the guest gets the segment MTU (underlay − 50) on
+   them. The guest OVN MTU does not come from there: `attachDefaultNetwork:
+   true` keeps the primary NIC on the management pod network, which sets it.
+   Each path has its own cross-worker, no-fragmentation gate (section 4).
 5. **One shared overlay, cluster-scoped wiring.** The admin provisions the
    overlay once and every guest cluster shares it. Per cluster, the framework
    creates only the namespace, four NADs and `NodePool` entries, and removes
@@ -150,6 +152,10 @@ the only path a guest segment needs. The management network enforces no port
 security, so with VM MACs kept inside the VXLAN only the perouter's VTEP MAC is
 visible on the wire.
 
+One VXLAN hop is the only encapsulation on the spare-NIC path, so the segment
+MTU is underlay − 50. The guest's own OVN-K Geneve traffic rides the management
+pod network instead (section 4).
+
 ### Ownership
 
 Everything that exists once per platform belongs to the **admin**; everything
@@ -159,7 +165,7 @@ run with cluster-scoped rights against a prepared platform.
 | Artifact | Created by | Owns |
 |---|---|---|
 | `Underlay`s | admin, once | one RR object per control-plane node and one datapath object per worker |
-| NNCP | admin, once | the shared bridge, VLAN filtering enabled, underlay − 50 MTU, on every worker a guest node may migrate to |
+| NNCP | admin, once | the shared bridge, VLAN filtering enabled, the spare-NIC segment MTU (underlay − 50), on every worker a guest node may migrate to |
 | `L2Trunk` + 20 `L2VNI` | admin, once | the overlay every cluster uses |
 | Trunk veth and VLAN membership | OpenPERouter, from the `L2Trunk` | creates and enslaves the trunk veth and programs it as a member of 1000–1019; the NNCP never names it |
 | Namespace `clusters-<name>` | framework | the guest cluster's HCP namespace |
@@ -250,23 +256,50 @@ guest cluster, where it creates the NADs, so it needs no write access to
 `openshift-openperouter`. One platform NNCP keeps the bridge's desired state in
 a single object; the trunk side needs no NNCP change.
 
-### MTU chain
+### MTU paths and their gates
+
+Two independent paths, neither derivable from the other:
 
 ```
+Path A - guest OVN (pod-to-pod inside the guest)
+management underlay MTU (>= 8050)
+  - 100  management OVN-K Geneve (the virt-launcher pod network)
+  = management pod network MTU = guest worker primary NIC MTU
+  - 100  guest OVN-K Geneve
+  = guest OVN MTU                    (QE floor: >= 7850)
+
+Path B - spare NICs (L2 between guest nodes)
 underlay MTU (>= 8000)
-  - 50   VXLAN on the management network
-  = segment / VM NIC MTU
-  - 100  guest cluster's own OVN-K
-  = guest cluster MTU (must be >= 7850)
+  - 50   VXLAN between management workers
+  = segment MTU = guest-visible NIC MTU   (nothing encapsulates on top)
 ```
 
-The bridge and the four NADs must state the segment MTU explicitly.
-OpenPERouter sets the MTU only on the veths inside its own namespace, never on
-the external bridge, and the bridge CNI plugin falls back to the kernel default
-when the NAD has no `mtu`; a missing MTU caps the guest cluster at 1500 however
-large the underlay is. The guest cluster's OVN-K MTU is immutable after
-install, and so is the underlay MTU, so all three values must agree before a
-job starts.
+`attachDefaultNetwork: true` keeps the guest worker's primary NIC on the
+management pod network, so the guest's Geneve tunnels never touch the four
+spare NICs: a 7950-byte NAD establishes nothing about the guest OVN MTU, and
+7850 needs a management pod network of 7950 (8050 of underlay), immutable at
+management cluster install. A jumbo guest primary NIC would mean dropping the
+default network, out of scope here.
+
+Path B needs the segment MTU stated explicitly in the bridge NNCP and all four
+NADs: OpenPERouter only sets the MTU on the veths inside its namespace, never
+on the external bridge, and the bridge CNI plugin falls back to the kernel
+default when a NAD has no `mtu`, capping the NICs at 1500 however large the
+underlay is.
+
+Both paths are gated by a cross-worker, no-fragmentation test: endpoints on VMs
+whose virt-launcher pods run on different management workers, DF set (a
+fragmented packet still arrives and would hide a too-small hop), MTU read from
+the interface rather than the manifest, and failure fails the job. The guest
+OVN gate is also the only way to catch an undersized management pod network —
+no NAD or NNCP inspection reveals it.
+
+| Gate | Placement | Pass condition |
+|---|---|---|
+| Guest OVN | one pod on each of two guest workers, same guest namespace | `ping -M do -s $((MTU-28))` passes; `-s $((MTU-27))` fails |
+| Spare NIC | one interface per guest worker, same tag (within one slice in phase 3) | `ping -I <dev> -M do -s $((MTU-28))` passes; one byte more fails |
+
+Path A runs once per management cluster, path B per job.
 
 ### Naming contracts
 
@@ -305,6 +338,9 @@ worker because live migration depends on the dataplane there. The filtering
 check is mandatory: `br_vlan_add()` has no filtering gate, so if filtering
 turns off the stored memberships go inert and all 20 tags flood between the
 NICs while traffic still works and nothing reports a difference.
+
+Readiness certifies objects and dataplane, not path MTU: the two gates above
+are the pre-job MTU check.
 
 ### Scheduling and live migration
 
@@ -376,7 +412,7 @@ a bridge.
 and no VLAN claims. The admin automates the underlays, bridges, MTU, the
 platform VNI block, readiness and the platform lifecycle; the framework
 automates its four NADs, the namespace and the `NodePool`. CI can gate untagged
-L2 reachability, multi-NIC presence and the MTU chain, and must report the
+L2 reachability, multi-NIC presence and both MTU gates, and must report the
 VLAN-range and tagged-localnet checks as **not covered**. There are four
 segments rather than twenty, and the simple NNCP has no dummy port, filtering,
 per-port membership or dark-waiting trunk.
@@ -390,7 +426,8 @@ design of section 3 (one shared VLAN-aware bridge, one trunk carrying
 1000–1019, 20 `L2VNI`s); the framework only rewrites the four NADs to point at
 the shared bridge with `vlanTrunk` slices and native tags — their names,
 namespace and `NodePool` entries do not change. Only then do the VLAN-range
-checks and tagged localnet tests become achievable.
+checks and tagged localnet tests become achievable; the spare-NIC MTU gate then
+runs on a tag, while the guest OVN gate is unaffected by the phases.
 
 ### Shape comparison
 
@@ -421,7 +458,8 @@ number of concurrent guest clusters.
 | Shared native VLAN 1 | Untagged frames flood between the four NICs | Distinct native `vlan` per port (CNI plugins ≥ v1.9.0, confirmed), or accept tagged-only isolation |
 | Shared segment exposure | Any cluster's VM on a tag reaches every other cluster's VMs on it; broadcast noise, stray DHCP/ARP and MAC collisions cross job boundaries, and any cluster can spoof | Accepted for this stage; document it, keep each job's dnsmasq scoped to its own clients, and add the per-cluster API before results depend on a quiet segment |
 | Platform overlay outage | One bad NNCP, trunk or bridge change blacks out every concurrent job | Overlay changes are admin-only and outside the per-job path; re-run the readiness gate after any change |
-| Missing MTU | Guest cluster capped at 1500, OVN-K below the QE floor, immutable after install | Explicit MTU in the NNCP and all four NADs; MTU check at setup |
+| Missing MTU on the spare NICs | Guest-visible NIC MTU falls back to 1500; jumbo localnet tests fail while the guest OVN path looks fine | Explicit `mtu` in the bridge NNCP and all four NADs; per-job tagged-NIC no-fragmentation gate |
+| Guest OVN MTU below the QE floor | It follows the management pod network MTU, not the NIC MTU, so jumbo NICs do not help; immutable after guest install | Guest OVN no-fragmentation gate before the job; management pod network at 7950 |
 | NNCP apply on node join | New worker never gets its bridge; policy fails until re-applied | Admin re-runs P1 per new node; OpenPERouter converges the trunk on that node independently |
 | Slice mismatch | A tag outside a NIC's slice is dropped at ingress | Configure each job with the slice matching its NIC |
 | Migration onto an unprepared worker | The guest node moves to a worker with no bridge, or with a bridge and no trunk, and its four NICs come up with no dataplane | Mandatory `resourceName` annotation on all four NADs **and** per-node readiness on every worker a guest node may reach |
@@ -444,6 +482,9 @@ number of concurrent guest clusters.
   versions the platform must support. The CNI plugin floor is settled at
   ≥ 1.9.0.
 - **Underlay MTU.** The exact smallest MTU on the path between hypervisors
-  (jumbo is expected but short of 9000); anything below 8000 fails the QE floor.
+  (jumbo is expected but short of 9000). Path B needs ≥ 8000, path A ≥ 8050.
+- **Management pod network MTU.** Whether the management clusters are — or can
+  be reinstalled — at a 7950 pod network. Without it the guest OVN floor is
+  unreachable, and the value is immutable per cluster.
 - **Guest side.** Whether the guest cluster must be configured to never assign
   an IP to the spare NICs. OpenPERouter stops at the hypervisor.

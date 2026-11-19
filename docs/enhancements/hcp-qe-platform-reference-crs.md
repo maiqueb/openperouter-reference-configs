@@ -19,7 +19,7 @@ guest cluster, or platform-wide). VLAN tags are fixed: `1000`–`1019`.
 |---|---|
 | `<cluster>` | guest cluster token; only per-cluster objects use it |
 | `<guest-ns>` | `clusters-<cluster>` |
-| `<mtu>` | bridge / NAD MTU = underlay MTU − 50 |
+| `<mtu>` | spare-NIC segment MTU = underlay MTU − 50; it does not set the guest OVN MTU |
 | `<mgmt-if>` | host NIC the macvlan underlay is based on |
 | `<underlay-subnet>` | management subnet shared by router and workers |
 | `<rr-ip>`, `<worker-ip>` | static underlay address of that node |
@@ -246,6 +246,7 @@ spec:
 Confirm the result per node:
 `cat /sys/class/net/<platform-bridge>/bridge/vlan_filtering` must print `1`.
 
+
 One `L2Trunk` on the bridge (`type: Host` is required). The trunk has no tag
 list of its own: its span is the union of the tags of the `L2VNI`s that
 reference it, plus the port membership OpenPERouter programs on the bridge.
@@ -412,6 +413,10 @@ The only relevant setting is the NAD list. Each entry is a single
 `<namespace>/<name>` string, bridge binding is implied, and the list cannot be
 changed after creation.
 
+`attachDefaultNetwork: true` keeps the guest primary NIC on the management pod
+network, so the guest OVN MTU comes from there, not from `<mtu>` (see
+[MTU: two paths, two gates](#mtu-two-paths-two-gates)).
+
 ```yaml
 apiVersion: hypershift.openshift.io/v1beta1
 kind: NodePool
@@ -434,6 +439,38 @@ spec:
 
 The NICs exist on each VM at first boot, so no hot-plug is involved. Wait for
 the virt-launcher pods to be running before declaring the cluster ready.
+
+### MTU: two paths, two gates
+
+Only the spare NICs come from the NADs and use `<mtu>`; the guest worker's
+primary NIC stays on the management pod network. The paths are independent and
+immutable at their cluster's install:
+
+| Path | MTU |
+|---|---|
+| Guest OVN (pod-to-pod) | management pod network MTU − 100; needs 7950 to reach the 7850 floor |
+| Spare NIC (L2) | `<mtu>` = underlay − 50, nothing encapsulates on top |
+
+Both gates are cross-worker (endpoints on VMs whose virt-launcher pods run on
+different management workers), set DF, and read the MTU from the interface, so
+a 1500-byte fallback fails the gate.
+
+```bash
+# Gate A - guest OVN path. One pod per guest worker, same guest namespace.
+GUEST_MTU=$(ip link show eth0 | awk '{print $5}')
+ping -M do -s $((GUEST_MTU - 28)) <peer-pod-ip>   # must pass
+ping -M do -s $((GUEST_MTU - 27)) <peer-pod-ip>   # must fail (frag needed)
+
+# Gate B - spare NIC. One interface per guest worker, same tag (within one
+# slice in phase 3). SEGMENT_MTU = <mtu>.
+SEGMENT_MTU=$(ip link show <tagged-dev> | awk '{print $5}')
+ping -I <tagged-dev> -M do -s $((SEGMENT_MTU - 28)) <peer-nic-ip>  # must pass
+ping -I <tagged-dev> -M do -s $((SEGMENT_MTU - 27)) <peer-nic-ip>  # must fail
+```
+
+Gate A is phase-independent and runs once per management cluster; gate B runs
+per job, untagged in phases 1–2 and on a tag in phase 3. Neither gate can be
+replaced by inspecting the NNCP or the NADs.
 
 ## Teardown
 
@@ -461,6 +498,10 @@ can sweep a failed run; a failed run leaks only its NADs.
 - **Cross-cluster acceptance.** The shared segments mean every cluster sees
   every other cluster's traffic on a tag. Confirm with QE which suites can run
   concurrently on the same tag without a quiet-domain assumption.
+- **Guest OVN MTU.** With `attachDefaultNetwork: true` it follows the
+  management pod network MTU, not `<mtu>`. Confirm which management clusters
+  have a 7950 pod network; where none do, the 7850 floor is unreachable
+  without moving the guest primary NIC to a jumbo segment.
 - **Phase 1→3 migration.** `L2VNI.spec.trunk` is immutable and exclusive with
   `hostMaster`, so the four untagged `L2VNI`s must be deleted before the trunk
   ones are created; there is no in-place conversion. The guest clusters are
