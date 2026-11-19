@@ -3,6 +3,7 @@
 = Connecting workloads to an EVPN secondary network with OpenPERouter
 :context: virt-connecting-workloads-to-evpn-secondary-networks
 :oc-first: oc
+:openperouter-version: 4.22.0
 
 [role="_abstract"]
 You can connect pods and virtual machines on an OpenShift cluster to an

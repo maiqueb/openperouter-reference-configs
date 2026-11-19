@@ -28,8 +28,8 @@ segment and a macvlan on `br-ex` for the underlay.
 
 OVN-Kubernetes localnet restrictions::
 * No VLAN trunking. Each VLAN is a separate localnet network, and
-  v0.3.0 OpenPERouter has no VLAN tag field, so a tagged segment needs its own
-  bridge and L2VNI.
+  v{openperouter-version} OpenPERouter has no VLAN tag field, so a tagged
+  segment needs its own bridge and L2VNI.
 * The KubeVirt localnet path does not provide IPAM. The repository examples
   assign static guest addresses through cloud-init.
 * MAC spoof checking is always enabled in that path, and promiscuous mode is
