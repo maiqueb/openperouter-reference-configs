@@ -43,12 +43,19 @@ for src in "${assemblies[@]}"; do
     --backend html5 \
     --attribute lang=en \
     --attribute toc=left \
+    --attribute imagesdir=images \
     --out-file "$out_dir/$name.html" \
     "$src"
 
   title="$(sed -n 's/^= //p' "$src" | head -n 1)"
   entries+=("<li><a href=\"$name.html\">${title:-$name}</a></li>")
 done
+
+# Publish the images referenced by the assemblies. The image macros use
+# imagesdir=images, which resolves relative to the rendered HTML in out_dir.
+if [[ -d "$repo_root/docs/images" ]]; then
+  cp -R "$repo_root/docs/images" "$out_dir/images"
+fi
 
 {
   cat <<'HTML'
