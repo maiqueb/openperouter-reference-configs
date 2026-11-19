@@ -113,5 +113,5 @@ mkdir -p $OUT_DIR
 
 gen_target_report "podman"   "external-client"   "external-client" "${OUT_DIR}/external-client.md"
 gen_target_report "podman"        "frr"          "external router" "${OUT_DIR}/external-router.md"
-gen_target_report "k8s"    "dev-worker-0.omergi" "worker-0"        "${OUT_DIR}/worker-0.md"
-gen_target_report "k8s"    "dev-worker-1.omergi" "worker-1"        "${OUT_DIR}/worker-1.md"
+gen_target_report "k8s"    "multi-homing-worker-0.maiqueb.org" "worker-0"        "${OUT_DIR}/worker-0.md"
+gen_target_report "k8s"    "multi-homing-worker-1.maiqueb.org" "worker-1"        "${OUT_DIR}/worker-1.md"
