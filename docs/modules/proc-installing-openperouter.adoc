@@ -7,21 +7,119 @@
 = Installing OpenPERouter
 
 [role="_abstract"]
-**TODO**
+Install OpenPERouter v{openperouter-version} from the Red Hat catalog, and
+create an `OpenPERouter` instance. The operator deploys the router, controller,
+nodemarker, and webhook pods in the namespace where you install it, so use a
+dedicated namespace instead of the default `openshift-operators` namespace.
+
+[NOTE]
+====
+The OpenPERouter Operator supports only the *All namespaces on the cluster*
+install mode. The web console cannot install a global operator into a custom
+global namespace, so use the CLI procedure in this module to install the
+operator in `openshift-openperouter`.
+====
 
 .Prerequisites
 
-**TODO**
+* You have `cluster-admin` access to the cluster.
+* You have installed the OpenShift CLI (`oc`).
 
 .Procedure
 
-**TODO**
+. Create the namespace for the operator and the dataplane:
++
+[source,terminal]
+----
+$ cat << EOF | oc apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-openperouter
+EOF
+----
+
+. Create a global `OperatorGroup`. The operator supports only the *All
+namespaces on the cluster* install mode, so the group must not set
+`spec.targetNamespaces`:
++
+[source,terminal]
+----
+$ cat << EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openperouter-operator
+  namespace: openshift-openperouter
+EOF
+----
+
+. Subscribe to the OpenPERouter Operator:
++
+[source,terminal]
+----
+$ cat << EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openperouter-operator
+  namespace: openshift-openperouter
+spec:
+  channel: "4.22"
+  installPlanApproval: Automatic
+  name: openperouter-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+----
+
+. Confirm that the `ClusterServiceVersion` (CSV) for the operator reports the
+`Succeeded` phase:
++
+[source,terminal]
+----
+$ oc get csv -n openshift-openperouter \
+    -o custom-columns=Name:.metadata.name,Phase:.status.phase
+----
++
+The `Phase` column must show `Succeeded` before you continue.
+
+. Create the `OpenPERouter` instance. The instance must be named
+`openperouter`:
++
+[source,terminal]
+----
+$ cat << EOF | oc apply -f -
+apiVersion: network.openperouter.io/v1alpha1
+kind: OpenPERouter
+metadata:
+  name: openperouter
+  namespace: openshift-openperouter
+spec:
+  datapath: kernel
+  logLevel: info
+EOF
+----
++
+The operator creates the router, controller, nodemarker, and webhook pods in
+the `openshift-openperouter` namespace.
 
 .Verification
 
-**TODO**
-
-[role="_additional-resources"]
-== Additional resources
-
-**TODO**
+. Confirm that the OpenPERouter pods are running:
++
+[source,terminal]
+----
+$ oc get pods -n openshift-openperouter
+----
++
+The output must list the following pods, each with a `Running` status:
++
+--
+* `operator-*` - the operator manager.
+* `webhook-*` - the admission webhook.
+* `controller-*` - one controller pod for each node.
+* `router-*` - one router pod for each node. Each router pod runs the `frr`
+  and `perouter` containers.
+* `nodemarker-*` - the node labeler.
+--
