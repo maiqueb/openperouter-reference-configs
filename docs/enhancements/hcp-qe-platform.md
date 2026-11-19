@@ -215,10 +215,10 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
    bridge ports as ignored and excludes them from the diff instead of pruning
    them.
 - P2. **Overlay CRs.** Create the `L2Trunk` and the 20 `L2VNI`s in the
-   OpenPERouter namespace, `<router-ns>`. Cross-object references such as
-   `L2VNI.spec.trunk.name` are same-namespace only, so the trunk belongs
-   there too. OpenPERouter creates the trunk host veth, enslaves it to the
-   bridge and programs its VLAN membership (1000–1019) from the `L2Trunk`.
+   OpenPERouter namespace, `openshift-openperouter`. Cross-object references
+   such as `L2VNI.spec.trunk.name` are same-namespace only, so the trunk
+   belongs there too. OpenPERouter creates the trunk host veth, enslaves it to
+   the bridge and programs its VLAN membership (1000–1019) from the `L2Trunk`.
    The bridge NNCP never lists the trunk port, so no companion NNCP apply is
    needed and VLAN membership is reconciled with the rest of the overlay.
 
@@ -245,8 +245,8 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
 The framework never creates, updates or deletes the bridge, the trunk or the
 segments; it only verifies them before wiring a cluster. Its write scope is the
 guest cluster, where it creates the NADs, so it needs no write access to
-`<router-ns>`. One platform NNCP keeps the bridge's desired state in a single
-object; the trunk side needs no NNCP change.
+`openshift-openperouter`. One platform NNCP keeps the bridge's desired state in
+a single object; the trunk side needs no NNCP change.
 
 ### MTU chain
 

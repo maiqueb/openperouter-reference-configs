@@ -7,7 +7,7 @@ OpenPERouter first, but is written against the API as it is defined today.
 The objects split in two:
 
 - **Platform overlay (admin, once):** the `Underlay`s, the shared bridges, the
-  `L2Trunk` and the 20 `L2VNI`s. They live in `<router-ns>` and are
+  `L2Trunk` and the 20 `L2VNI`s. They live in `openshift-openperouter` and are
   shared by every guest cluster.
 - **Guest-cluster wiring (QE framework, per cluster):** the namespace, the four
   NADs and the `NodePool` entries, pointing at the shared bridges.
@@ -29,10 +29,6 @@ guest cluster, or platform-wide). VLAN tags are fixed: `1000`–`1019`.
 | `<platform-dummy>` | phase 3 dummy port name |
 | `<platform-trunk>` | phase 3 `L2Trunk` name |
 | `<platform-l2vni>` | prefix of the `L2VNI` names |
-| `<router-ns>` | OpenPERouter namespace holding the platform overlay |
-
-**TODO:** determine the downstream OpenPERouter namespace and replace
-`<router-ns>` with it before applying these manifests.
 
 Platform objects use placeholders too: `<platform-bridge>`, `<platform-dummy>`,
 `<platform-trunk>` and `<platform-l2vni>-<tag>` in the trunk shape, and
@@ -60,7 +56,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-rr-<n>
-  namespace: <router-ns>
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -106,7 +102,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-worker-<n>
-  namespace: <router-ns>
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -185,7 +181,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: <platform-l2vni>-nic<n>
-  namespace: <router-ns>
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -256,15 +252,15 @@ Confirm the result per node:
 One `L2Trunk` on the bridge (`type: Host` is required). The trunk has no tag
 list of its own: its span is the union of the tags of the `L2VNI`s that
 reference it, plus the port membership OpenPERouter programs on the bridge.
-The trunk and the `L2VNI`s live in `<router-ns>`, because cross-object
-references are same-namespace only.
+The trunk and the `L2VNI`s live in `openshift-openperouter`, because
+cross-object references are same-namespace only.
 
 ```yaml
 apiVersion: network.openperouter.io/v1alpha1
 kind: L2Trunk
 metadata:
   name: <platform-trunk>
-  namespace: <router-ns>
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -286,7 +282,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: <platform-l2vni>-1000
-  namespace: <router-ns>
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -301,7 +297,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: <platform-l2vni>-1019
-  namespace: <router-ns>
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -323,7 +319,7 @@ in sync by the platform.
 These are the only per-cluster objects. The framework never creates, updates or
 deletes the bridges, the trunk or the segments. Its service account therefore
 needs write access only to the guest namespace, where it creates the NADs; the
-shared overlay stays admin-owned in `<router-ns>`.
+shared overlay stays admin-owned in `openshift-openperouter`.
 
 ### Namespace
 
