@@ -30,11 +30,12 @@ among the management nodes. OpenPERouter closes that gap with EVPN/VXLAN-backed
 Layer 2 segments that terminate on host Linux bridges, which become the guest
 VM's extra interfaces.
 
-The overlay is **platform-scoped**: the admin creates it once and every guest
-cluster consumes the same segments, so clusters are connected to each other
-per VLAN tag and per-cluster isolation is deferred. Delivery is phased: until
-trunk mode lands, phases 1–2 exercise only an untagged subset and cannot run
-the VLAN-dependent tests (section 5).
+The overlay is **platform-scoped**: the admin creates it once — the segments,
+bridges, and the four NADs in `default` — and every guest cluster consumes the
+same segments and the same NADs, so clusters are connected to each other per
+VLAN tag and per-cluster isolation is deferred. Delivery is phased: until trunk
+mode lands, phases 1–2 exercise only an untagged subset and cannot run the
+VLAN-dependent tests (section 5).
 
 ### Acceptance
 
@@ -62,9 +63,9 @@ the VLAN-dependent tests (section 5).
    true` keeps the primary NIC on the management pod network, which sets it.
    Each path has its own cross-worker, no-fragmentation gate (section 4).
 5. **One shared overlay, cluster-scoped wiring.** The admin provisions the
-   overlay once and every guest cluster shares it. Per cluster, the framework
-   creates only the namespace, four NADs and `NodePool` entries, and removes
-   them afterwards.
+   overlay and the four NADs once and every guest cluster shares them. Per
+   cluster, the framework creates only the `HostedCluster` and `NodePool`, and
+   removes them afterwards.
 6. **Observable readiness.** The framework confirms per-node convergence from
    status objects before wiring a cluster and fails the job otherwise.
 7. **Live-migration ready.** Every worker that can host a guest node carries
@@ -135,11 +136,11 @@ isolation at this stage; the slices only keep a node's NICs apart.
 | `L2VNI` (one per tag) | platform, per worker | 20 |
 | VNI | platform, per worker | 20 |
 | Namespace | per guest cluster | 1 |
-| NAD | per guest cluster | 4 |
+| NAD (in `default`) | platform | 4 |
 | `NodePool.additionalNetworks` entry | per guest cluster | 4 |
 
-The framework creates no overlay object: no `L2VNI`, `L2Trunk`, VXLAN device or
-bridge is per guest cluster. Routing is not part of the initial delivery, so no
+The framework creates no overlay object: no `L2VNI`, `L2Trunk`, VXLAN device,
+bridge or NAD is per guest cluster. Routing is not part of the initial delivery, so no
 `L3VNI`, VRF or anycast gateway is provisioned. If it is added later, each
 routed segment needs its own `L3VNI` and VRF, shared by all clusters on that
 tag: one subnet and one gateway per tag.
@@ -168,14 +169,17 @@ run with cluster-scoped rights against a prepared platform.
 | NNCP | admin, once | the shared bridge, VLAN filtering enabled, the spare-NIC segment MTU (underlay − 50), on every worker a guest node may migrate to |
 | `L2Trunk` + 20 `L2VNI` | admin, once | the overlay every cluster uses |
 | Trunk veth and VLAN membership | OpenPERouter, from the `L2Trunk` | creates and enslaves the trunk veth and programs it as a member of 1000–1019; the NNCP never names it |
-| Namespace `clusters-<name>` | framework | the guest cluster's HCP namespace |
-| NAD × 4 | framework | per-NIC membership: `vlanTrunk` slice + native `vlan` tag + MTU + the bridge-marker `resourceName` |
-| `NodePool.additionalNetworks` | framework | references the four NADs |
+| NAD × 4 in `default` | admin, once | per-NIC membership: `vlanTrunk` slice + native `vlan` tag + MTU + the bridge-marker `resourceName` |
+| Namespace `clusters-<name>` | HyperShift, with the `HostedCluster` | the guest cluster's HCP namespace |
+| `NodePool.additionalNetworks` | framework | references the four platform NADs |
 
 The per-NIC membership cannot live in the NNCP: the VM's host-side veths are
 created by the bridge CNI plugin when each virt-launcher pod starts, after the
 NNCP, with plugin-generated names. The NAD is the per-NIC declaration and is
-equally deterministic.
+equally deterministic. It is also platform state: the four NADs are created
+once in `default`, which Multus resolves from any namespace, and every guest
+cluster references `default/nic<n>`. Only the overlay owner can change a tag
+slice or the NIC MTU, and doing so affects every cluster at once.
 
 ## 4. Implementation plan
 
@@ -229,32 +233,28 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
    the bridge and programs its VLAN membership (1000–1019) from the `L2Trunk`.
    The bridge NNCP never lists the trunk port, so no companion NNCP apply is
    needed and VLAN membership is reconciled with the rest of the overlay.
-
-#### Per-cluster setup (QE framework)
-
-- C1. **Namespace.** Create `clusters-<name>`. HyperShift only creates it with
-   the `HostedCluster` (C4), yet C2 creates NADs in it and
-   `additionalNetworks` must reference NADs from the guest cluster's namespace.
-- C2. **NADs.** Create four `NetworkAttachmentDefinition`s, one per NIC slot, in
-   `clusters-<name>`. Each carries `type: bridge`,
-   `bridge: <shared host bridge>`, `macspoofchk: false`,
-   `disableContainerInterface: true`, its own `vlanTrunk` slice, its native
-   `vlan` tag, the bridge MTU, and the mandatory
+- P3. **NADs.** Create the four `NetworkAttachmentDefinition`s, one per NIC
+   slot, in `default`. Each carries `type: bridge`, `bridge: <shared host
+   bridge>`, `macspoofchk: false`, `disableContainerInterface: true`, its own
+   `vlanTrunk` slice, its native `vlan` tag, the bridge MTU, and the mandatory
    `k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/<bridge>`
    annotation. The native tag stays out of `vlanTrunk`: a tag cannot be both
    native and tagged, and adding it to the slice clears its native flags.
-- C3. **NodePool.** Reference the four NADs from
-   `NodePool.spec.platform.kubevirt.additionalNetworks`. HyperShift always
-   uses bridge binding for these interfaces.
-- C4. **Create the guest cluster** (`HostedCluster` + `NodePool`). The NICs are
-   present on each VM at first boot; hot-plug is not needed, and
-   `additionalNetworks` cannot be changed afterwards.
 
-The framework never creates, updates or deletes the bridge, the trunk or the
-segments; it only verifies them before wiring a cluster. Its write scope is the
-guest cluster, where it creates the NADs, so it needs no write access to
-`openshift-openperouter`. One platform NNCP keeps the bridge's desired state in
-a single object; the trunk side needs no NNCP change.
+#### Per-cluster setup (QE framework)
+
+- C1. **HostedCluster + NodePool.** Apply both objects. HyperShift creates
+   `clusters-<name>`; no per-cluster namespace or NAD has to exist beforehand.
+   `NodePool.spec.platform.kubevirt.additionalNetworks` lists
+   `default/nic1`–`default/nic4` (HyperShift always uses bridge binding), and
+   cannot be changed afterwards. The NICs are present on each VM at first boot,
+   so hot-plug is not needed.
+
+The framework never creates, updates or deletes the bridge, the trunk, the
+segments or the NADs; it only reads them to verify a cluster. It writes only
+`HostedCluster` and `NodePool`, so it needs no write access to
+`openshift-openperouter` or to `default`. One platform NNCP keeps the bridge's
+desired state in a single object; the trunk side needs no NNCP change.
 
 ### MTU paths and their gates
 
@@ -309,8 +309,9 @@ Path A runs once per management cluster, path B per job.
   never names the trunk port, so no external object has to track the name.
 - **Bridge:** one platform bridge, so `br-qe` fits the 15-character limit; no
   per-cluster naming budget.
-- **NADs:** four distinct names per NodePool, one interface each; identical
-  across clusters because each lives in its cluster's namespace.
+- **NADs:** one set of four in `default`, one interface each; the names must be
+  unique only there, and every `NodePool` references the same
+  `default/nic<n>`.
 
 ### Fabric-wide allocation
 
@@ -331,6 +332,9 @@ per node from both controllers and **errors out** if it is not converged:
 - OpenPERouter: `RouterNodeConfigurationStatus` named after the node, with
   `Ready=True`, `Degraded=False` and an empty `failedResources`.
 - The bridge is VLAN-aware: `/sys/class/net/<br>/bridge/vlan_filtering` is 1.
+- The four platform NADs exist in `default`, point at the bridge and carry the
+  expected MTU and tag slices. The framework never edits them, but a missing or
+  drifted NAD breaks every cluster at once, so it is checked before wiring.
 
 The check covers the shared overlay, so it runs once per platform and is
 re-checked on node join and after an upgrade, but it must cover every eligible
@@ -361,23 +365,24 @@ platform teardown is the admin's.
 
 1. Delete `HostedCluster`/`NodePool` and wait for the virt-launcher pods to
    go — a VM must not outlive its NIC wiring.
-2. Delete the NADs. Deleting the namespace `clusters-<name>` removes them
-   with it.
+2. Delete the namespace `clusters-<name>`, which HyperShift leaves behind.
 
-No `L2VNI`, `L2Trunk` or bridge is deleted: they belong to the platform and
-are still in use by other clusters.
+No `L2VNI`, `L2Trunk`, bridge or NAD is deleted: they belong to the platform
+and are still in use by other clusters.
 
 **Platform (admin), only when no guest cluster uses the overlay:**
 
-1. Delete the `L2VNI`s and the `L2Trunk`.
-2. Delete the bridge NNCP, which removes the bridge and the dummy port. The
+1. Delete the four NADs in `default`.
+2. Delete the `L2VNI`s and the `L2Trunk`.
+3. Delete the bridge NNCP, which removes the bridge and the dummy port. The
    trunk veth and its VLAN membership went with the `L2Trunk`.
-3. Verify `RouterNodeConfigurationStatus` reports no `failedResources`.
+4. Verify `RouterNodeConfigurationStatus` reports no `failedResources`.
 
 Every framework-created object carries a `cnv-qe/cluster=<id>` label so the
-next job can sweep a failed run's leftovers. A failed run leaks only its NADs;
-the shared overlay is not per-job state, and its blast radius is platform-wide,
-so platform changes and teardown must be coordinated.
+next job can sweep a failed run's leftovers. A failed run leaks only its own
+namespace and cluster; the overlay and the NADs are not per-job state, and
+their blast radius is platform-wide, so platform changes and teardown must be
+coordinated.
 
 ## 5. Phased delivery
 
@@ -410,8 +415,9 @@ a bridge.
 
 **Goal:** run the phase 1 dataplane repeatably in CI, with the same limitations
 and no VLAN claims. The admin automates the underlays, bridges, MTU, the
-platform VNI block, readiness and the platform lifecycle; the framework
-automates its four NADs, the namespace and the `NodePool`. CI can gate untagged
+platform VNI block, readiness and the platform lifecycle, plus the four
+platform NADs; the framework automates the `HostedCluster` and `NodePool`.
+CI can gate untagged
 L2 reachability, multi-NIC presence and both MTU gates, and must report the
 VLAN-range and tagged-localnet checks as **not covered**. There are four
 segments rather than twenty, and the simple NNCP has no dummy port, filtering,
@@ -423,11 +429,12 @@ per-port membership or dark-waiting trunk.
 programming of the trunk veth and its VLAN membership. The admin replaces the
 four untagged bridges and `L2VNI`s with the target
 design of section 3 (one shared VLAN-aware bridge, one trunk carrying
-1000–1019, 20 `L2VNI`s); the framework only rewrites the four NADs to point at
-the shared bridge with `vlanTrunk` slices and native tags — their names,
-namespace and `NodePool` entries do not change. Only then do the VLAN-range
-checks and tagged localnet tests become achievable; the spare-NIC MTU gate then
-runs on a tag, while the guest OVN gate is unaffected by the phases.
+1000–1019, 20 `L2VNI`s, and the four NADs rewritten with `vlanTrunk` slices and
+native tags). Every per-cluster object is untouched: the `NodePool` keeps
+referencing `default/nic<n>`, so a new cluster picks up the new shape and an
+existing one follows it without a rewrite. Only then do the VLAN-range checks
+and tagged localnet tests become achievable; the spare-NIC MTU gate then runs
+on a tag, while the guest OVN gate is unaffected by the phases.
 
 ### Shape comparison
 
@@ -443,7 +450,8 @@ runs on a tag, while the guest OVN gate is unaffected by the phases.
 | NIC isolation | one bridge per NIC | per-port tag slice |
 
 Per guest cluster the footprint is the same in both shapes: one namespace, four
-NADs, four `additionalNetworks` entries and no overlay objects.
+`additionalNetworks` entries and no platform objects. The four NADs are part of
+the platform footprint and do not multiply with the number of clusters.
 
 Routing is not provisioned in either phase; an `L3VNI` would add a bridge and
 VXLAN device per routed segment. None of the overlay rows multiply with the
@@ -458,6 +466,7 @@ number of concurrent guest clusters.
 | Shared native VLAN 1 | Untagged frames flood between the four NICs | Distinct native `vlan` per port (CNI plugins ≥ v1.9.0, confirmed), or accept tagged-only isolation |
 | Shared segment exposure | Any cluster's VM on a tag reaches every other cluster's VMs on it; broadcast noise, stray DHCP/ARP and MAC collisions cross job boundaries, and any cluster can spoof | Accepted for this stage; document it, keep each job's dnsmasq scoped to its own clients, and add the per-cluster API before results depend on a quiet segment |
 | Platform overlay outage | One bad NNCP, trunk or bridge change blacks out every concurrent job | Overlay changes are admin-only and outside the per-job path; re-run the readiness gate after any change |
+| NAD drift | A job or a stray edit changes a tag slice or the MTU on a shared NAD, silently affecting every cluster | NADs are admin-owned and read-only for the framework; readiness re-checks their MTU and slices before wiring |
 | Missing MTU on the spare NICs | Guest-visible NIC MTU falls back to 1500; jumbo localnet tests fail while the guest OVN path looks fine | Explicit `mtu` in the bridge NNCP and all four NADs; per-job tagged-NIC no-fragmentation gate |
 | Guest OVN MTU below the QE floor | It follows the management pod network MTU, not the NIC MTU, so jumbo NICs do not help; immutable after guest install | Guest OVN no-fragmentation gate before the job; management pod network at 7950 |
 | NNCP apply on node join | New worker never gets its bridge; policy fails until re-applied | Admin re-runs P1 per new node; OpenPERouter converges the trunk on that node independently |

@@ -7,10 +7,12 @@ OpenPERouter first, but is written against the API as it is defined today.
 The objects split in two:
 
 - **Platform overlay (admin, once):** the `Underlay`s, the shared bridges, the
-  `L2Trunk` and the 20 `L2VNI`s. They live in `openshift-openperouter` and are
-  shared by every guest cluster.
-- **Guest-cluster wiring (QE framework, per cluster):** the namespace, the four
-  NADs and the `NodePool` entries, pointing at the shared bridges.
+  `L2Trunk`, the 20 `L2VNI`s and the four NADs. The overlay objects live in
+  `openshift-openperouter` and are shared by every guest cluster; the NADs live
+  in `default` so any guest namespace can reference them.
+- **Guest-cluster wiring (QE framework, per cluster):** only the `HostedCluster`
+  and the `NodePool`, which point at the shared bridges through
+  `default/nic<n>`.
 
 Placeholders in angle brackets are environment-specific values (per node, per
 guest cluster, or platform-wide). VLAN tags are fixed: `1000`–`1019`.
@@ -18,7 +20,7 @@ guest cluster, or platform-wide). VLAN tags are fixed: `1000`–`1019`.
 | Placeholder | Meaning |
 |---|---|
 | `<cluster>` | guest cluster token; only per-cluster objects use it |
-| `<guest-ns>` | `clusters-<cluster>` |
+| `<guest-ns>` | `clusters-<cluster>`, created by HyperShift |
 | `<mtu>` | spare-NIC segment MTU = underlay MTU − 50; it does not set the guest OVN MTU |
 | `<mgmt-if>` | host NIC the macvlan underlay is based on |
 | `<underlay-subnet>` | management subnet shared by router and workers |
@@ -32,11 +34,11 @@ guest cluster, or platform-wide). VLAN tags are fixed: `1000`–`1019`.
 
 Platform objects use placeholders too: `<platform-bridge>`, `<platform-dummy>`,
 `<platform-trunk>` and `<platform-l2vni>-<tag>` in the trunk shape, and
-`<platform-bridge-n>` / `<platform-l2vni>-nic<n>` in the untagged shape. Only
-`<guest-ns>`, the four NADs and the `NodePool` entries are per guest cluster,
-so `<cluster>` no longer has to fit the 15-character interface-name limit. It
-must still be unique per guest cluster on the management cluster, since it
-names the guest namespace and the `NodePool`.
+`<platform-bridge-n>` / `<platform-l2vni>-nic<n>` in the untagged shape. The
+NADs are always in `default` and are not parameterised. Only `<guest-ns>` and
+the `NodePool` are per guest cluster, so `<cluster>` does not have to fit the
+15-character interface-name limit. It must still be unique per guest cluster on
+the management cluster, since it names the guest namespace and the `NodePool`.
 
 ## Platform overlay (admin, once)
 
@@ -312,33 +314,18 @@ OpenPERouter's: they follow the `L2Trunk` lifecycle and are not named in any
 NNCP. There is no second apply, so no host veth name has to be derived or kept
 in sync by the platform.
 
-## Per guest cluster (QE framework)
-
-These are the only per-cluster objects. The framework never creates, updates or
-deletes the bridges, the trunk or the segments. Its service account therefore
-needs write access only to the guest namespace, where it creates the NADs; the
-shared overlay stays admin-owned in `openshift-openperouter`.
-
-### Namespace
-
-HyperShift only creates it together with the `HostedCluster`, but the NADs must
-already be there:
-
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: <guest-ns>
-```
-
 ### NADs — phase 3
 
-NADs share the one bridge, so the same mandatory `resourceName` annotation is on
-all four. `vlan` is the native (untagged) tag of the port; `vlanTrunk` holds the
-tagged members. A tag cannot be both, so the native tag is kept out of
-`vlanTrunk` — it is reachable from the guest only untagged. Give each NIC a
-dedicated out-of-range native tag (e.g. `2001`–`2004`) and keep all five slice
-tags in `vlanTrunk` if it must be tested tagged.
+The admin creates the four NADs once, in `default`. Multus resolves a NAD from
+the namespace named in the reference, so every guest cluster uses the same
+`default/nic<n>`; no job creates or edits them, and a change here affects every
+cluster at once. They share the one bridge, so the same mandatory
+`resourceName` annotation is on all four. `vlan` is the native (untagged) tag
+of the port; `vlanTrunk` holds the tagged members. A tag cannot be both, so the
+native tag is kept out of `vlanTrunk` — it is reachable from the guest only
+untagged. Give each NIC a dedicated out-of-range native tag (e.g.
+`2001`–`2004`) and keep all five slice tags in `vlanTrunk` if it must be tested
+tagged.
 
 | NAD | native `vlan` | `vlanTrunk` |
 |---|---|---|
@@ -352,7 +339,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: nic1
-  namespace: <guest-ns>
+  namespace: default
   annotations:
     k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/<platform-bridge>
 spec:
@@ -380,14 +367,15 @@ bridge.
 
 ### NADs — phases 1–2
 
-One NAD per bridge, pointing at the shared untagged bridge for its NIC.
+One NAD per bridge, pointing at the shared untagged bridge for its NIC; again
+all four in `default`.
 
 ```yaml
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: nic<n>
-  namespace: <guest-ns>
+  namespace: default
   annotations:
     k8s.v1.cni.cncf.io/resourceName: bridge.network.kubevirt.io/<platform-bridge-n>
 spec:
@@ -407,11 +395,20 @@ Repeat for `n = 1..4`; no `vlan` or `vlanTrunk` in this shape. The
 `resourceName` annotation is mandatory for the same migration reason as in
 phase 3.
 
+## Per guest cluster (QE framework)
+
+These are the only per-cluster objects: the `HostedCluster` and the `NodePool`.
+HyperShift creates `clusters-<name>` with the `HostedCluster`, so nothing has to
+exist beforehand. The framework never creates, updates or deletes the bridges,
+the trunk, the segments or the NADs, and needs no write access outside the
+`clusters` namespace and the guest namespace.
+
 ### NodePool
 
-The only relevant setting is the NAD list. Each entry is a single
-`<namespace>/<name>` string, bridge binding is implied, and the list cannot be
-changed after creation.
+The only relevant setting is the NAD list. Each entry is `default/<name>`,
+bridge binding is implied, and the list cannot be changed after creation. The
+NADs are platform objects, created once and reused by every cluster, so a
+framework job only references them.
 
 `attachDefaultNetwork: true` keeps the guest primary NIC on the management pod
 network, so the guest OVN MTU comes from there, not from `<mtu>` (see
@@ -429,16 +426,18 @@ spec:
     kubevirt:
       attachDefaultNetwork: true
       additionalNetworks:
-        - name: <guest-ns>/nic1
-        - name: <guest-ns>/nic2
-        - name: <guest-ns>/nic3
-        - name: <guest-ns>/nic4
+        - name: default/nic1
+        - name: default/nic2
+        - name: default/nic3
+        - name: default/nic4
 ```
 
 ### HostedCluster
 
-The NICs exist on each VM at first boot, so no hot-plug is involved. Wait for
-the virt-launcher pods to be running before declaring the cluster ready.
+HyperShift creates `<guest-ns>` together with the `HostedCluster`, so the
+framework has to create nothing there beforehand. The NICs exist on each VM at
+first boot, so no hot-plug is involved. Wait for the virt-launcher pods to be running
+before declaring the cluster ready.
 
 ### MTU: two paths, two gates
 
@@ -479,19 +478,23 @@ Reverse of setup, so a bridge is never removed under running VMs.
 **Per cluster (framework):**
 
 1. `HostedCluster` and `NodePool`, waiting for the virt-launcher pods to go.
-2. Delete the `<guest-ns>` namespace, which removes the NADs.
+2. Delete the `<guest-ns>` namespace, which HyperShift leaves behind.
 
-The shared overlay is not deleted: the other clusters are still using it.
+The shared overlay and the NADs are not deleted: the other clusters are still
+using them.
 
 **Platform (admin), only when no guest cluster uses the overlay:**
 
-1. The `L2VNI`s and the `L2Trunk`.
-2. The bridge NNCP(s), which remove the bridges and the dummy ports. The trunk
+1. The four NADs in `default`.
+2. The `L2VNI`s and the `L2Trunk`.
+3. The bridge NNCP(s), which remove the bridges and the dummy ports. The trunk
    veth and its VLAN membership were removed with the `L2Trunk`s.
-3. Check that `RouterNodeConfigurationStatus` reports no `failedResources`.
+4. Check that `RouterNodeConfigurationStatus` reports no `failedResources`.
 
 Every per-cluster object carries a `cnv-qe/cluster=<id>` label so a later job
-can sweep a failed run; a failed run leaks only its NADs.
+can sweep a failed run; a failed run leaks only its own namespace. The NADs and
+the overlay are platform state, so editing or deleting them is never a per-job
+cleanup step.
 
 ## Open questions
 
@@ -504,6 +507,6 @@ can sweep a failed run; a failed run leaks only its NADs.
   without moving the guest primary NIC to a jumbo segment.
 - **Phase 1→3 migration.** `L2VNI.spec.trunk` is immutable and exclusive with
   `hostMaster`, so the four untagged `L2VNI`s must be deleted before the trunk
-  ones are created; there is no in-place conversion. The guest clusters are
-  untouched apart from their NAD contents, which point at `<platform-bridge>`
-  instead of `<platform-bridge-n>`.
+  ones are created; there is no in-place conversion. The per-cluster objects do
+  not change at all: the `NodePool` already references `default/nic<n>`, and
+  only the platform NADs and the overlay are rewritten.
