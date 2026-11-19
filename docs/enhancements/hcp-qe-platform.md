@@ -160,8 +160,8 @@ run with cluster-scoped rights against a prepared platform.
 |---|---|---|
 | `Underlay`s | admin, once | one RR object per control-plane node and one datapath object per worker |
 | NNCP | admin, once | the shared bridge, VLAN filtering enabled, underlay − 50 MTU, on every worker a guest node may migrate to |
-| `L2Trunk` + 20 `L2VNI` | admin, once | the trunk veth and the overlay every cluster uses |
-| Trunk port membership | admin, same NNCP re-applied | the trunk veth as a member of 1000–1019 |
+| `L2Trunk` + 20 `L2VNI` | admin, once | the overlay every cluster uses |
+| Trunk veth and VLAN membership | OpenPERouter, from the `L2Trunk` | creates and enslaves the trunk veth and programs it as a member of 1000–1019; the NNCP never names it |
 | Namespace `clusters-<name>` | framework | the guest cluster's HCP namespace |
 | NAD × 4 | framework | per-NIC membership: `vlanTrunk` slice + native `vlan` tag + MTU + the bridge-marker `resourceName` |
 | `NodePool.additionalNetworks` | framework | references the four NADs |
@@ -186,9 +186,10 @@ For clarity, the starpup sequence for phase 3 is described below.
 
 The work splits in two: the **platform overlay**, created once by the admin
 and shared by every guest cluster, and the **guest-cluster wiring**, repeated
-per cluster by the framework. Only the trunk port membership has an ordering
-requirement (it follows the trunk); clusters can be wired concurrently once
-the overlay is ready. Concrete manifests for every step, in both shapes, are
+per cluster by the framework. There is no NNCP re-apply: OpenPERouter derives
+the trunk veth and its VLAN membership from the `L2Trunk`, so clusters can be
+wired concurrently once the overlay is ready. Concrete manifests for every
+step, in both shapes, are
 in [the reference CRs](hcp-qe-platform-reference-crs.md).
 
 #### Platform setup (admin, once)
@@ -212,15 +213,10 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
 - P2. **Overlay CRs.** Create the `L2Trunk` and the 20 `L2VNI`s in the
    OpenPERouter namespace, `<router-ns>`. Cross-object references such as
    `L2VNI.spec.trunk.name` are same-namespace only, so the trunk belongs
-   there too. OpenPERouter creates the trunk host veth and enslaves it to the
-   bridge.
-- P3. **Trunk port membership.** Re-apply the same NNCP with the trunk veth
-   added as a bridge port: `mode: trunk`,
-   `trunk-tags: [{id-range: {min: 1000, max: 1019}}]`, no `tag`. nmstate can
-   only describe a port that already exists, so this must follow P2; the
-   overlay is dark on a VLAN-filtering bridge until it lands. It has to land on
-   **every** eligible worker, or a migrated node arrives at a bridge with no
-   trunk behind it.
+   there too. OpenPERouter creates the trunk host veth, enslaves it to the
+   bridge and programs its VLAN membership (1000–1019) from the `L2Trunk`.
+   The bridge NNCP never lists the trunk port, so no companion NNCP apply is
+   needed and VLAN membership is reconciled with the rest of the overlay.
 
 #### Per-cluster setup (QE framework)
 
@@ -245,8 +241,8 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
 The framework never creates, updates or deletes the bridge, the trunk or the
 segments; it only verifies them before wiring a cluster. Its write scope is the
 guest cluster, where it creates the NADs, so it needs no write access to
-`<router-ns>`. One platform NNCP, updated in place, keeps the bridge's
-desired state in a single object.
+`<router-ns>`. One platform NNCP keeps the bridge's desired state in a single
+object; the trunk side needs no NNCP change.
 
 ### MTU chain
 
@@ -268,11 +264,10 @@ job starts.
 
 ### Naming contracts
 
-- **Trunk host veth:** derived from the `L2Trunk` name, unique per trunk per
-  node, at most 15 characters and stable across veth recreation (the
-  NetworkManager profile matches by name); `host-t-<8 hex>` fits. There is one
-  platform trunk, so this is one fixed name. The trunk path has no naming
-  scheme today, which is the one API obligation the design creates.
+- **Trunk host veth:** derived by OpenPERouter from the `L2Trunk` name, unique
+  per trunk per node and at most 15 characters; `host-t-<8 hex>` fits. It is
+  an OpenPERouter implementation detail, not a platform contract: the NNCP
+  never names the trunk port, so no external object has to track the name.
 - **Bridge:** one platform bridge, so `br-qe` fits the 15-character limit; no
   per-cluster naming budget.
 - **NADs:** four distinct names per NodePool, one interface each; identical
@@ -333,8 +328,8 @@ are still in use by other clusters.
 **Platform (admin), only when no guest cluster uses the overlay:**
 
 1. Delete the `L2VNI`s and the `L2Trunk`.
-2. Delete the bridge NNCP, which removes the bridge, the dummy port and the
-   trunk port membership.
+2. Delete the bridge NNCP, which removes the bridge and the dummy port. The
+   trunk veth and its VLAN membership went with the `L2Trunk`.
 3. Verify `RouterNodeConfigurationStatus` reports no `failedResources`.
 
 Every framework-created object carries a `cnv-qe/cluster=<id>` label so the
@@ -382,8 +377,9 @@ per-port membership or dark-waiting trunk.
 
 ### Phase 3 — trunk mode
 
-**Gated on** the `L2Trunk` dataplane landing and a deterministic trunk host veth
-name. The admin replaces the four untagged bridges and `L2VNI`s with the target
+**Gated on** the `L2Trunk` dataplane landing, including OpenPERouter's
+programming of the trunk veth and its VLAN membership. The admin replaces the
+four untagged bridges and `L2VNI`s with the target
 design of section 3 (one shared VLAN-aware bridge, one trunk carrying
 1000–1019, 20 `L2VNI`s); the framework only rewrites the four NADs to point at
 the shared bridge with `vlanTrunk` slices and native tags — their names,
@@ -415,13 +411,13 @@ number of concurrent guest clusters.
 | Failure | Symptom | Guard |
 |---|---|---|
 | Filtering off | All 20 tags flood between the four NICs; traffic still works, nothing reports it | Per-node `vlan_filtering` check in readiness; keep the dummy port |
-| Trunk port membership missing | Overlay dark **for every cluster** while `L2VNI`s exist and nodes are `Ready` | P3 must complete before any cluster is wired; readiness gates on dataplane, not object existence |
+| Trunk veth or VLAN membership missing | Overlay dark **for every cluster** while `L2VNI`s exist and nodes are `Ready` | OpenPERouter configures both from the `L2Trunk`; readiness gates on the per-node dataplane, not object existence |
 | Shared native VLAN 1 | Untagged frames flood between the four NICs | Distinct native `vlan` per port (CNI plugins ≥ v1.9.0, confirmed), or accept tagged-only isolation |
 | Shared segment exposure | Any cluster's VM on a tag reaches every other cluster's VMs on it; broadcast noise, stray DHCP/ARP and MAC collisions cross job boundaries, and any cluster can spoof | Accepted for this stage; document it, keep each job's dnsmasq scoped to its own clients, and add the per-cluster API before results depend on a quiet segment |
 | Platform overlay outage | One bad NNCP, trunk or bridge change blacks out every concurrent job | Overlay changes are admin-only and outside the per-job path; re-run the readiness gate after any change |
 | Missing MTU | Guest cluster capped at 1500, OVN-K below the QE floor, immutable after install | Explicit MTU in the NNCP and all four NADs; MTU check at setup |
 | NNCP port pruning | Re-applying the bridge drops CNI-created ports | `bridge.allow-extra-ports: true` on every apply (it is not persisted); validate the field on the target OCP first |
-| NNCP re-apply on node join | New worker never gets its bridge or trunk membership; policy fails until re-applied | Admin re-runs P1 and P3 per new node |
+| NNCP apply on node join | New worker never gets its bridge; policy fails until re-applied | Admin re-runs P1 per new node; OpenPERouter converges the trunk on that node independently |
 | Slice mismatch | A tag outside a NIC's slice is dropped at ingress | Configure each job with the slice matching its NIC |
 | Migration onto an unprepared worker | The guest node moves to a worker with no bridge, or with a bridge and no trunk, and its four NICs come up with no dataplane | Mandatory `resourceName` annotation on all four NADs **and** per-node readiness on every worker a guest node may reach |
 
