@@ -108,7 +108,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-worker0
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -156,7 +156,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L3VNI
 metadata:
   name: red
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vni: 100
   vrf: red
@@ -165,7 +165,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: layer2
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   hostMaster:
     type: OVSBridge
@@ -230,17 +230,17 @@ status:
 +
 [source,terminal]
 ----
-$ oc get routernodeconfigurationstatus -n openperouter-system
+$ oc get routernodeconfigurationstatus -n openshift-openperouter
 ----
 +
 Each node must show `READY` as `True` and `DEGRADED` as `False`, with the
 `Ready` condition `True` and an empty `status.failedResources`. If a resource
 fails, read the status of the affected node with `oc get
-routernodeconfigurationstatus <node-name> -n openperouter-system -o yaml`;
+routernodeconfigurationstatus <node-name> -n openshift-openperouter -o yaml`;
 `status.failedResources` lists the failed `Underlay`, `L3VNI`, or `L2VNI` with
 its reason and message.
 +
-Use `oc get pods -n openperouter-system -o wide` to identify the router pod
+Use `oc get pods -n openshift-openperouter -o wide` to identify the router pod
 for the following steps.
 
 . Confirm that the `NodeNetworkConfigurationPolicy` reports that the bridge
@@ -264,7 +264,7 @@ node error.
 +
 [source,terminal]
 ----
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
     vtysh -c 'show evpn vni'
 ----
 +

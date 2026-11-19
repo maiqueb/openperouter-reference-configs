@@ -28,7 +28,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -93,7 +93,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L3VNI
 metadata:
   name: red
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vni: 100
   vrf: red
@@ -129,7 +129,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: layer2
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vni: 110
   hostMaster:

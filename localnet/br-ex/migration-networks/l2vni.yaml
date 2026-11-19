@@ -3,7 +3,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: migration-net
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   hostMaster:
     type: LinuxBridge
@@ -20,7 +20,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L3VNI
 metadata:
   name: rouge
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vni: 777
   vrf: rouge

@@ -27,7 +27,7 @@ so that you can confirm the assumptions before you start.
   additionally requires that OVN-Kubernetes already use `br-ex`.
 * The Kubernetes NMState Operator installed and a `NMState` instance created.
 * OpenPERouter v{openperouter-version} installed in the
-  `openperouter-system` namespace.
+  `openshift-openperouter` namespace.
 * OpenShift Virtualization installed and a `HyperConverged` instance created.
 * An external router that runs FRR and has one interface on the underlay
   network, one interface on the external client network, and VXLAN and BGP

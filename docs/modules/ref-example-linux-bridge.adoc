@@ -50,7 +50,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-worker0
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -83,7 +83,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-worker1
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
@@ -130,7 +130,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L3VNI
 metadata:
   name: red-100
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vrf: red
   vni: 100
@@ -139,7 +139,7 @@ apiVersion: network.openperouter.io/v1alpha1
 kind: L2VNI
 metadata:
   name: red-110
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vni: 110
   routingDomain:
@@ -317,7 +317,7 @@ accepted the VNIs:
 ----
 $ oc get nncp linux-bridge-perouter-vni-110 -o yaml
 $ oc get nnce -l nmstate.io/policy=linux-bridge-perouter-vni-110 -o yaml
-$ oc get routernodeconfigurationstatus -n openperouter-system
+$ oc get routernodeconfigurationstatus -n openshift-openperouter
 ----
 
 In `status.conditions` of the policy, `Available` must be `True` with reason
@@ -332,9 +332,9 @@ verify the EVPN control plane directly:
 
 [source,terminal]
 ----
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
     vtysh -c 'show evpn vni'
-$ oc exec -n openperouter-system <router-pod> -c frr -- \
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
     vtysh -c 'show bgp l2vpn evpn route type 2'
 $ podman exec frr vtysh -c 'show bgp l2vpn evpn summary'
 ----
