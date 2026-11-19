@@ -209,7 +209,11 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
    − 50. nmstate has no standalone VLAN-filtering switch, so the NNCP declares
    the bridge with a **dummy port carrying a `vlan` block**; that makes
    NetworkManager enable `vlan-filtering` at creation, and keeping the dummy
-   keeps it on for the bridge's life.
+   keeps it on for the bridge's life. No `allow-extra-ports` is needed: OCP
+   marks every `veth` device unmanaged in NetworkManager (`driver:veth` in
+   `/etc/NetworkManager/conf.d/sdn.conf`), so nmstate treats the CNI-created
+   bridge ports as ignored and excludes them from the diff instead of pruning
+   them.
 - P2. **Overlay CRs.** Create the `L2Trunk` and the 20 `L2VNI`s in the
    OpenPERouter namespace, `<router-ns>`. Cross-object references such as
    `L2VNI.spec.trunk.name` are same-namespace only, so the trunk belongs
@@ -416,7 +420,6 @@ number of concurrent guest clusters.
 | Shared segment exposure | Any cluster's VM on a tag reaches every other cluster's VMs on it; broadcast noise, stray DHCP/ARP and MAC collisions cross job boundaries, and any cluster can spoof | Accepted for this stage; document it, keep each job's dnsmasq scoped to its own clients, and add the per-cluster API before results depend on a quiet segment |
 | Platform overlay outage | One bad NNCP, trunk or bridge change blacks out every concurrent job | Overlay changes are admin-only and outside the per-job path; re-run the readiness gate after any change |
 | Missing MTU | Guest cluster capped at 1500, OVN-K below the QE floor, immutable after install | Explicit MTU in the NNCP and all four NADs; MTU check at setup |
-| NNCP port pruning | Re-applying the bridge drops CNI-created ports | `bridge.allow-extra-ports: true` on every apply (it is not persisted); validate the field on the target OCP first |
 | NNCP apply on node join | New worker never gets its bridge; policy fails until re-applied | Admin re-runs P1 per new node; OpenPERouter converges the trunk on that node independently |
 | Slice mismatch | A tag outside a NIC's slice is dropped at ingress | Configure each job with the slice matching its NIC |
 | Migration onto an unprepared worker | The guest node moves to a worker with no bridge, or with a bridge and no trunk, and its four NICs come up with no dataplane | Mandatory `resourceName` annotation on all four NADs **and** per-node readiness on every worker a guest node may reach |

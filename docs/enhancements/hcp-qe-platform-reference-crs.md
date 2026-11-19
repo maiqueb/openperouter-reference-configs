@@ -147,9 +147,11 @@ Four untagged L2 domains, one per NIC slot, each backed by its own shared
 bridge and standalone `L2VNI`. Usable with the current dataplane.
 
 Bridge NNCP, one policy per bridge. No `vlan` block (filtering stays off), no
-`port` list (the ports are the bridge-CNI veths, created later, and
-`allow-extra-ports: true` prevents a re-apply from pruning them). The selector
-must cover every worker a guest node may run on or migrate to.
+`port` list (the ports are the bridge-CNI veths, created later). No
+`allow-extra-ports` is needed: OCP marks every `veth` unmanaged in
+NetworkManager (`driver:veth` in `/etc/NetworkManager/conf.d/sdn.conf`), so
+nmstate sees those ports as ignored and does not prune them. The selector must
+cover every worker a guest node may run on or migrate to.
 
 ```yaml
 apiVersion: nmstate.io/v1
@@ -173,7 +175,6 @@ spec:
           options:
             stp:
               enabled: false
-          allow-extra-ports: true
 ```
 
 One `L2VNI` per NIC. `hostMaster` with `lifecycle: External` attaches the veth
@@ -207,10 +208,11 @@ can be used. 20 tagged segments `1000`–`1019`, five per NIC.
 
 One bridge plus a dummy port carrying the `vlan` block — that port is what makes
 NetworkManager enable VLAN filtering at creation, and it stays for the life of
-the bridge. `allow-extra-ports: true` again guards the CNI-created ports. The
-NNCP does not list the trunk port and is not re-applied: OpenPERouter creates
-the trunk veth, enslaves it and programs its VLAN membership from the
-`L2Trunk`.
+the bridge. The CNI-created veth ports are not reported as managed by nmstate
+(NetworkManager leaves `veth` devices unmanaged on OCP), so no
+`allow-extra-ports` is needed to preserve them. The NNCP does not list the
+trunk port and is not re-applied: OpenPERouter creates the trunk veth, enslaves
+it and programs its VLAN membership from the `L2Trunk`.
 
 ```yaml
 apiVersion: nmstate.io/v1
@@ -234,7 +236,6 @@ spec:
           options:
             stp:
               enabled: false
-          allow-extra-ports: true
           port:
             - name: <platform-dummy>
               vlan:
