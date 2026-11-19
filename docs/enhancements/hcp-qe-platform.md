@@ -207,9 +207,11 @@ in [the reference CRs](hcp-qe-platform-reference-crs.md).
 - P1. **Bridge NNCP.** Create the shared host bridge VLAN-aware on every worker
    a guest node may run on or migrate to, with an explicit `mtu` of underlay
    − 50. nmstate has no standalone VLAN-filtering switch, so the NNCP declares
-   the bridge with a **dummy port carrying a `vlan` block**; that makes
-   NetworkManager enable `vlan-filtering` at creation, and keeping the dummy
-   keeps it on for the bridge's life. No `allow-extra-ports` is needed: OCP
+   the bridge with a **dummy port carrying a `vlan` block** (an access port on
+   an unused VLAN); that makes NetworkManager enable `vlan-filtering` at
+   creation, and keeping the dummy keeps it on for the bridge's life. The dummy
+   is not a trunk port and is not a member of 1000–1019; OpenPERouter programs
+   the trunk membership. No `allow-extra-ports` is needed: OCP
    marks every `veth` device unmanaged in NetworkManager (`driver:veth` in
    `/etc/NetworkManager/conf.d/sdn.conf`), so nmstate treats the CNI-created
    bridge ports as ignored and excludes them from the diff instead of pruning

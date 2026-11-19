@@ -200,13 +200,15 @@ Repeat for `n = 1..4` (VNIs `4001`–`4004`). No `routingDomain`, no
 Needs trunk support in the dataplane (`L2Trunk`, `L2VNI.spec.trunk`) before it
 can be used. 20 tagged segments `1000`–`1019`, five per NIC.
 
-One bridge plus a dummy port carrying the `vlan` block — that port is what makes
-NetworkManager enable VLAN filtering at creation, and it stays for the life of
-the bridge. The CNI-created veth ports are not reported as managed by nmstate
-(NetworkManager leaves `veth` devices unmanaged on OCP), so no
-`allow-extra-ports` is needed to preserve them. The NNCP does not list the
-trunk port and is not re-applied: OpenPERouter creates the trunk veth, enslaves
-it and programs its VLAN membership from the `L2Trunk`.
+One bridge plus a dummy port carrying a VLAN configuration — that port is what
+makes NetworkManager enable VLAN filtering at creation, and it stays for the
+life of the bridge. The dummy is an access port on an unused VLAN (4094): it
+only exists to keep filtering on and is not a trunk port. The CNI-created veth
+ports are not reported as managed by nmstate (NetworkManager leaves `veth`
+devices unmanaged on OCP), so no `allow-extra-ports` is needed to preserve them.
+The NNCP does not list the trunk port and is not re-applied: OpenPERouter
+creates the trunk veth, enslaves it and programs its VLAN membership from the
+`L2Trunk`.
 
 ```yaml
 apiVersion: nmstate.io/v1
@@ -233,11 +235,8 @@ spec:
           port:
             - name: <platform-dummy>
               vlan:
-                mode: trunk
-                trunk-tags:
-                  - id-range:
-                      min: 1000
-                      max: 1019
+                mode: access
+                tag: 4094
       - name: <platform-dummy>
         type: dummy
         state: up
