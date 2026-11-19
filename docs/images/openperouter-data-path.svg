@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="364"
+     viewBox="0 0 1040 364" role="img"
+     aria-labelledby="diagram-title diagram-desc"
+     font-family="Liberation Sans, DejaVu Sans, Arial, sans-serif">
+  <title id="diagram-title">OpenPERouter data path</title>
+  <desc id="diagram-desc">
+    A virtual machine on an OpenShift node reaches the workload subnet
+    through an attachment bridge (ovsbr1 or brvni110). OpenPERouter maps the
+    segment to L2VNI 110 on the vni110 VXLAN interface, which tunnels traffic
+    from the 100.65.0.0/24 VTEP pool to an external router. The external router
+    runs BGP AS 64512 and carries VRF red, VNI 100.
+  </desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse"
+            orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-vxlan" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse"
+            orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrow-bgp" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse"
+            orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1040" height="364" fill="#ffffff"/>
+
+  <!-- Node boundary -->
+  <rect x="32" y="76" width="600" height="248" rx="14"
+        fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"
+        stroke-dasharray="7 5"/>
+  <text x="52" y="108" font-size="12" font-weight="600" fill="#64748b"
+        letter-spacing="1.2">OPENSHIFT NODE (WORKER)</text>
+
+  <!-- Workload -->
+  <rect x="56" y="144" width="150" height="140" rx="10"
+        fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="131" y="174" font-size="15" font-weight="700" fill="#312e81"
+        text-anchor="middle">Virtual machine</text>
+  <line x1="72" y1="186" x2="190" y2="186" stroke="#c7d2fe" stroke-width="1.5"/>
+  <text x="131" y="210" font-size="12.5" fill="#1e1b4b" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">192.170.1.10/24</text>
+  <text x="131" y="232" font-size="12.5" fill="#1e1b4b" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">MAC 02:…:10</text>
+  <text x="131" y="260" font-size="11" fill="#6366f1" text-anchor="middle">tenant subnet</text>
+
+  <!-- Attachment bridge -->
+  <rect x="246" y="144" width="150" height="140" rx="10"
+        fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+  <text x="321" y="174" font-size="13" font-weight="700" fill="#155e75"
+        text-anchor="middle">Attachment bridge</text>
+  <line x1="262" y1="186" x2="380" y2="186" stroke="#a5f3fc" stroke-width="1.5"/>
+  <text x="321" y="208" font-size="13" fill="#164e63" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">ovsbr1</text>
+  <text x="321" y="230" font-size="13" fill="#164e63" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">or brvni110</text>
+  <text x="321" y="258" font-size="11" fill="#0891b2" text-anchor="middle">OVS or Linux bridge</text>
+
+  <!-- OpenPERouter -->
+  <rect x="436" y="144" width="172" height="140" rx="10"
+        fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="522" y="172" font-size="15" font-weight="700" fill="#14532d"
+        text-anchor="middle">OpenPERouter</text>
+  <line x1="452" y1="184" x2="592" y2="184" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="522" y="206" font-size="11.5" fill="#166534" text-anchor="middle">FRR router</text>
+  <text x="522" y="230" font-size="13" font-weight="700" fill="#14532d"
+        text-anchor="middle">L2VNI 110</text>
+  <text x="522" y="252" font-size="12" fill="#14532d" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">vni110 (VXLAN)</text>
+  <text x="522" y="274" font-size="10.5" fill="#4d7c0f" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">netns: perouter</text>
+
+  <!-- Workload to bridge, bridge to OpenPERouter -->
+  <line x1="206" y1="214" x2="238" y2="214" stroke="#475569" stroke-width="2"
+        marker-end="url(#arrow)"/>
+  <line x1="396" y1="214" x2="428" y2="214" stroke="#475569" stroke-width="2"
+        marker-end="url(#arrow)"/>
+
+  <!-- VXLAN data path -->
+  <text x="688" y="182" font-size="12" font-weight="700" fill="#6d28d9"
+        text-anchor="middle">VXLAN · VNI 110</text>
+  <text x="688" y="196" font-size="10.5" fill="#7c3aed" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">VTEP 100.65.0.0/24</text>
+  <line x1="608" y1="208" x2="760" y2="208" stroke="#7c3aed" stroke-width="2.5"
+        marker-end="url(#arrow-vxlan)"/>
+
+  <!-- BGP EVPN control plane -->
+  <line x1="608" y1="252" x2="760" y2="252" stroke="#64748b" stroke-width="1.8"
+        stroke-dasharray="6 4" marker-end="url(#arrow-bgp)"/>
+  <text x="688" y="274" font-size="11" fill="#475569" text-anchor="middle">BGP EVPN</text>
+
+  <!-- External router -->
+  <rect x="768" y="144" width="232" height="140" rx="10"
+        fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="884" y="174" font-size="15" font-weight="700" fill="#7c2d12"
+        text-anchor="middle">External router</text>
+  <line x1="784" y1="186" x2="984" y2="186" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="884" y="210" font-size="13" fill="#7c2d12" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">BGP AS 64512</text>
+  <text x="884" y="232" font-size="13" fill="#7c2d12" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">VRF red</text>
+  <text x="884" y="254" font-size="13" fill="#7c2d12" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">VNI 100</text>
+  <text x="884" y="276" font-size="11" fill="#c2410c" text-anchor="middle">EVPN peer</text>
+</svg>

@@ -29,22 +29,7 @@ workload subnet is distributed as an anycast address on every node that
 participates in the network.
 
 .OpenPERouter data path
-....
-+-------------------+        +--------------------+        +-------------------+
-| Pod or VM         |        | Attachment         |        | OpenPERouter      |
-| 192.170.1.10/24   | -----> | ovsbr1 or          | -----> | L2VNI 110         |
-| MAC 02:...:10     |        | brvni110           |        | vni110 (VXLAN)    |
-+-------------------+        +--------------------+        +---------+---------+
-                                                                     |
-                                                                     | VXLAN
-                                                                     | 100.65.0.0/24
-                                                                     v
-                                                           +-------------------+
-                                                           | External router   |
-                                                           | BGP AS 64512      |
-                                                           | VRF red, VNI 100  |
-                                                           +-------------------+
-....
+image::openperouter-data-path.png[OpenPERouter data path,width=760]
 
 == Key terms
 
