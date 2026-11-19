@@ -1,87 +1,61 @@
 #! /bin/bash
 
-# provider networks
-NET1_HOST_NIC="net1"
-NET1_CIDR="192.168.10.0/24"
-NET1_PREFIX="24"
-NET1_BRD="192.168.10.255"
-NET1_EXPECTED_IP_MATCH="192.168.10"
+# Podman networks. These are lab infrastructure and must already exist; the
+# scripts only consume them.
+DEFAULT_CRI_NET_NAME="default-network" # libvirt default network (192.168.122.0/24)
+NET1_CRI_NET_NAME="net1-ext"           # net1 exposed to podman (10.200.0.0/16)
+# Third attachment (net2 / eth2). The router's address here (e.g.
+# 192.169.1.26) is the external client's default gateway.
+EXT_NET_CRI_NET_NAME="my-isolated-network"
+EXT_NET_CRI_CIDR="192.169.1.0/24"
+
+# Node underlay: the CNI device is a macvlan on top of ens4 (net1).
 NET1_NODE_NIC="ens4"
-NET1_MVLAN="ens4mvln"
+UNDERLAY_IFACE_NAME="net1" # interface name inside the router netns
+UNDERLAY_PREFIX="16"
+# The external router's net1-ext address is discovered at setup time (podman
+# inspect) and used as the BGP neighbor.
 
-NET2_HOST_NIC="net2"
-NET2_CIDR="192.168.20.0/24"
-NET2_NODE_NIC="ens5"
+# Cluster nodes
+NODE0_HOSTNAME="multi-homing-worker-0"
+NODE0="multi-homing-worker-0.maiqueb.org"
+NET1_MVLN_NODE0_IP="10.200.11.50"
 
-# cluster nodes
-NODE0_HOSTNAME="dev-worker-0"
-NODE0="dev-worker-0.omergi"
-NET1_NODE0_IP="192.168.10.31"
-NET2_NODE0_IP="192.168.20.67"
+NODE1_HOSTNAME="multi-homing-worker-1"
+NODE1="multi-homing-worker-1.maiqueb.org"
+NET1_MVLN_NODE1_IP="10.200.11.51"
 
-NET1_MVLN_NODE0_IP="192.168.10.100"
-
-NODE1_HOSTNAME="dev-worker-1"
-NODE1="dev-worker-1.omergi"
-NET1_NODE1_IP="192.168.10.245"
-NET2_NODE1_IP="192.168.20.14"
-
-NET1_MVLN_NODE1_IP="192.168.10.101"
-
-# cluster nodes ASN
+# ASNs
 CLUSTER_NET_ASN=64514
-
-# external router
 EXT_NET_ASN=64512
-EXT_NET_VTEP_CIDR="100.64.0.1/32"
 
-# stretched network
+# Stretched network
 EXT_NET_VRF="red"
 EXT_NET_L3VNI=100
 EXT_NET_L2VNI=110
 EXT_NET_L2VNI_GW_CIDR="192.170.1.1/24"
 
-# bridge used for connecting VMs to EVPN
+# Bridge used for connecting VMs to EVPN
 VNI_BR_NNCP_NAME="linux-bridge-perouter-vni-110"
 VNI_BR_NAD_NAME="evpn-l2vni-110"
 L2VNI_BRIDGE="brvni110"
 
-# container runtime networks
-NET1_CRI_NET_NAME="net1-ex"
-NET1_CRI_RANGE="192.168.10.128/25" # second half of the original CIDR
-
-NET2_CRI_NET_NAME="net2-ex"
-NET2_CRI_RANGE="192.168.20.128/25" # second half of the original CIDR
-
-# stretched network, on external container runtime end
-EXT_NET_CRI_NET_NAME="ext"
-EXT_NET_CRI_CIDR="192.169.1.0/24"
-EXT_NET_CRI_RANGE="192.169.1.128/25"
-# gateway for the external client network, pinned to the external-router's
-# address on this network so podman doesn't auto-guess an unreachable gateway
-EXT_NET_GW_IP="192.169.1.1"
-
-# external client container
+# External client container
 EXT_APP_NAME="external-client"
 EXT_APP_IMG="registry.k8s.io/e2e-test-images/agnhost:2.45"
 
 SCRIPT_PATH=$(dirname "$(realpath "$0")")
 DIR=$(dirname $SCRIPT_PATH)
+REPO_ROOT=$(dirname $DIR)
 
-# external router container
+# External router container
 EXT_FRR_NAME="frr"
 EXT_FRR_IMG="frr-router"
-FRR_CONFIG="${DIR}/external-router/frrconfigs"
+FRR_CONFIG="${REPO_ROOT}/external-router"
+EXT_FRR_NET1_NIC="eth1" # net1-ext interface; stays in the default VRF
 
-# external router network interface names
-EXT_FRR_NET1_NIC="eth0" # underlay
-EXT_FRR_EXT_NET_NIC="eth1" # external client network
-
-# templates and manifests paths
+# Templates and manifests
 TMPL_DIR="${DIR}/templates"
-
-FRR_CONF_TEMPLATE="${TMPL_DIR}/frr.conf"
-FRR_CONF="${FRR_CONFIG}/frr.conf"
 
 NNCP_VNI_BR_TEMPLATE="${TMPL_DIR}/vni-linux-bridge-nncp.yaml"
 NNCP_VNI_BR_MANIFEST="${DIR}/00-vni-linux-bridge-nncp.yaml"
@@ -98,10 +72,10 @@ VNIS_MANIFEST="${DIR}/02-openperouter-vnis.yaml"
 WORKLOADS_TEMPLATE="${TMPL_DIR}/workloads.yaml"
 WORKLOADS_MANIFEST="${DIR}/04-workloads.yaml"
 
-# openperouter system namespace
+# OpenPERouter system namespace
 NAMESPACE="openshift-openperouter"
 
-# tests namespace
+# Tests namespace
 TEST_NS="test-evpn-linux-bridge"
 
 # VMs
@@ -113,11 +87,5 @@ VMS_GW="192.170.1.1"
 VMS_PUBLIC_KEY="$(realpath ~/.ssh/kcli.pub)"
 VMS_KEY="$(realpath ~/.ssh/kcli)"
 
-# aggregated entities for teardown
-NODE_VMS=($NODE0_HOSTNAME $NODE1_HOSTNAME)
+# Aggregated entities for teardown
 CONTAINERS=($EXT_FRR_NAME $EXT_APP_NAME)
-CRI_NETWORKS=($NET1_CRI_NET_NAME $NET2_CRI_NET_NAME $EXT_NET_CRI_NET_NAME)
-NODE_NICS=($NET1_NODE_NIC $NET2_NODE_NIC)
-
-NET1_NODE0_IP=$NET1_MVLN_NODE0_IP
-NET1_NODE1_IP=$NET1_MVLN_NODE1_IP
