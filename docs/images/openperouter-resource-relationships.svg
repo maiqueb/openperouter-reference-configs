@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="700"
+     viewBox="0 0 920 700" role="img"
+     aria-labelledby="diagram-title diagram-desc"
+     font-family="Liberation Sans, DejaVu Sans, Arial, sans-serif">
+  <title id="diagram-title">OpenPERouter resource relationships</title>
+  <desc id="diagram-desc">
+    The Underlay resource provides the transport to the L3VNI, which defines
+    the tenant VRF. The L2VNI references the L3VNI through
+    routingDomain.l3vni.name and provides the Layer 2 segment. A
+    NetworkAttachmentDefinition or CUDN/UDN attaches a virtual machine to the
+    L2VNI.
+  </desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse"
+            orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-reference" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse"
+            orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="920" height="700" fill="#ffffff"/>
+
+  <!-- Underlay -->
+  <rect x="550" y="36" width="330" height="112" rx="10"
+        fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="566" y="66" font-size="15.5" font-weight="700" fill="#7c2d12">Underlay</text>
+  <text x="566" y="86" font-size="11.5" fill="#c2410c">one per node group</text>
+  <line x1="566" y1="96" x2="864" y2="96" stroke="#ffedd5" stroke-width="1.5"/>
+  <text x="566" y="118" font-size="12" fill="#7c2d12">cluster ASN · VTEP pool</text>
+  <text x="566" y="138" font-size="12" fill="#7c2d12">external neighbors · underlay interfaces</text>
+
+  <!-- L3VNI -->
+  <rect x="550" y="204" width="330" height="112" rx="10"
+        fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="566" y="234" font-size="15.5" font-weight="700" fill="#14532d">L3VNI</text>
+  <text x="566" y="254" font-size="11.5" fill="#4d7c0f">one per tenant VRF</text>
+  <line x1="566" y1="264" x2="864" y2="264" stroke="#dcfce7" stroke-width="1.5"/>
+  <text x="566" y="286" font-size="12" fill="#14532d">VRF name · VNI · route targets</text>
+  <text x="566" y="306" font-size="12" fill="#14532d">routing domain for L2VNIs</text>
+
+  <!-- L2VNI -->
+  <rect x="40" y="204" width="330" height="112" rx="10"
+        fill="#ecfeff" stroke="#0891b2" stroke-width="1.5"/>
+  <text x="56" y="234" font-size="15.5" font-weight="700" fill="#155e75">L2VNI</text>
+  <text x="56" y="254" font-size="11.5" fill="#0e7490">one per Layer 2 segment</text>
+  <line x1="56" y1="264" x2="354" y2="264" stroke="#cffafe" stroke-width="1.5"/>
+  <text x="56" y="286" font-size="12" fill="#164e63">VNI · hostMaster bridge · gatewayIPs</text>
+  <text x="56" y="306" font-size="12" fill="#164e63">binds the segment to a host bridge</text>
+
+  <!-- NetworkAttachmentDefinition / CUDN / UDN -->
+  <rect x="40" y="372" width="330" height="112" rx="10"
+        fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="56" y="402" font-size="15.5" font-weight="700" fill="#4c1d95">NetworkAttachmentDefinition</text>
+  <text x="56" y="422" font-size="11.5" fill="#6d28d9">or CUDN / UDN</text>
+  <line x1="56" y1="432" x2="354" y2="432" stroke="#ede9fe" stroke-width="1.5"/>
+  <text x="56" y="454" font-size="12" fill="#4c1d95">attaches the VM to the segment</text>
+  <text x="56" y="474" font-size="12" fill="#4c1d95">linux-bridge or localnet</text>
+
+  <!-- Virtual machine -->
+  <rect x="40" y="540" width="330" height="112" rx="10"
+        fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="56" y="570" font-size="15.5" font-weight="700" fill="#312e81">Virtual machine</text>
+  <text x="56" y="590" font-size="11.5" fill="#4f46e5">workload</text>
+  <line x1="56" y1="600" x2="354" y2="600" stroke="#e0e7ff" stroke-width="1.5"/>
+  <text x="56" y="622" font-size="12" fill="#312e81">MAC and IP on the tenant subnet</text>
+
+  <!-- Underlay provides transport to L3VNI -->
+  <line x1="715" y1="148" x2="715" y2="196" stroke="#475569" stroke-width="2"
+        marker-end="url(#arrow)"/>
+  <text x="730" y="180" font-size="11.5" fill="#475569">provides the transport</text>
+
+  <!-- L2VNI references L3VNI -->
+  <line x1="370" y1="260" x2="542" y2="260" stroke="#64748b" stroke-width="1.8"
+        stroke-dasharray="6 4" marker-end="url(#arrow-reference)"/>
+  <text x="460" y="248" font-size="11" fill="#475569" text-anchor="middle"
+        font-family="Liberation Mono, DejaVu Sans Mono, monospace">routingDomain.l3vni.name</text>
+
+  <!-- L2VNI to attachment to VM -->
+  <line x1="205" y1="316" x2="205" y2="364" stroke="#475569" stroke-width="2"
+        marker-end="url(#arrow)"/>
+  <line x1="205" y1="484" x2="205" y2="532" stroke="#475569" stroke-width="2"
+        marker-end="url(#arrow)"/>
+</svg>

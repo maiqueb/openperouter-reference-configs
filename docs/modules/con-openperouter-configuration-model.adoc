@@ -14,26 +14,7 @@ describes a Layer 2 segment and the host bridge that carries it. Multiple
 `L3VNI`.
 
 .OpenPERouter resource relationships
-....
-Underlay (one per node group)
-  cluster ASN, VTEP pool, external neighbors, underlay interfaces
-        |
-        | provides the transport
-        v
-L3VNI (one per tenant VRF)
-  VRF name, VNI, route targets
-        ^
-        | routingDomain.l3vni.name
-        |
-L2VNI (one per Layer 2 segment)
-  VNI, hostMaster bridge, gatewayIPs
-        |
-        v
-NetworkAttachmentDefinition or CUDN/UDN
-        |
-        v
-Pod or virtual machine
-....
+image::openperouter-resource-relationships.png[OpenPERouter resource relationships,width=640]
 
 == Underlay
 
