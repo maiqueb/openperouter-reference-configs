@@ -374,8 +374,9 @@ and are still in use by other clusters.
 
 1. Delete the four NADs in `default`.
 2. Delete the `L2VNI`s and the `L2Trunk`.
-3. Delete the bridge NNCP, which removes the bridge and the dummy port. The
-   trunk veth and its VLAN membership went with the `L2Trunk`.
+3. Delete the node bridge and the dummy port by setting both their states to
+   `absent`, and removing the dummy from the bridge's port list.
+   The trunk veth and its VLAN membership went with the `L2Trunk`.
 4. Verify `RouterNodeConfigurationStatus` reports no `failedResources`.
 
 Every framework-created object carries a `cnv-qe/cluster=<id>` label so the
