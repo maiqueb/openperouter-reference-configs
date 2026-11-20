@@ -22,69 +22,222 @@ image::openperouter-resource-relationships.png[OpenPERouter resource relationshi
 
 == Underlay
 
-The `Underlay` resource tells OpenPERouter which nodes participate, which
-interfaces connect them to the fabric, and which external routers to peer
-with.
+The `Underlay` resource tells OpenPERouter which nodes participate, how each
+node connects to the external fabric, and which external BGP routers it peers
+with. The following sections describe the node selection, the BGP peering, and
+the uplink connection separately, then combine them into a complete example.
+
+=== Scheduling
+
+The `nodeSelector` field selects the nodes that run the router configuration.
+It uses standard Kubernetes label selector semantics. Use the node hostname
+label to bind one `Underlay` to one node:
+
+[source,yaml]
+----
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+----
+
+An `Underlay` contains one set of node-specific values, such as the underlay
+IP address and MAC address. OpenPERouter applies the same values to every node
+that the selector matches; it does not substitute different values per node.
+If one `Underlay` matched several nodes and used a static address, all of those
+nodes would try to use the same address and MAC address, which causes address
+conflicts and leaves the underlay unusable.
+
+For that reason, the reference configurations create one `Underlay` per node.
+Use a selector that matches exactly one node, and repeat the resource for every
+worker node that must run OpenPERouter.
+
+=== Peering with the BGP speakers
+
+The `asn` field is the autonomous system number that the cluster node uses
+toward the external fabric. All nodes in one EVPN domain normally share it.
+The `neighbors` list contains the external BGP peers. Each entry requires an
+`asn` and an `address`:
+
+[source,yaml]
+----
+spec:
+  asn: <cluster-asn>
+  neighbors:
+    - asn: <external-router-asn>
+      address: <external-router-ip>
+----
+
+Each `neighbors` entry can also set optional fields such as
+`passwordSecret`, `holdTimeSeconds`, `bfd`, and `addressFamilies`.
+
+Use an external router address that the node can reach through its underlay
+interface. The node underlay address and the BGP neighbor address must be on
+the same network, so that the BGP session can be established directly over the
+underlay.
+
+The `tunnelEndpoint.cidrs` field defines the pool from which each node
+allocates its VTEP address. These addresses must be routable over the same
+underlay network. They are not part of the BGP peering itself, but the
+neighbors must be able to reach them.
+
+=== Uplink connection and IPAM
+
+The `interfaces` field defines how a node connects to the underlay. Each entry
+uses `type: CNIDevice` with a raw CNI configuration. The CNI plugin creates a
+macvlan or ipvlan device on top of a node interface inside the router pod,
+while the parent interface stays in the host network namespace:
+
+[source,yaml]
+----
+spec:
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: <underlay-ip>/<prefix-length>
+----
+
+Set `master` to the node interface or bridge that carries the underlay, for
+example `<node-nic>`. OpenPERouter assigns a default name to the device inside
+the router pod. The optional `interfaceName` field overrides that name.
+
+Use a macvlan when the underlay needs its own MAC address on the parent
+interface. Use an ipvlan when the underlay must share the MAC address of the
+parent, or when the parent cannot host a macvlan. To use an ipvlan, set the
+plugin `type` to `ipvlan`, and set `mode` to `l2` or `l3`.
+
+The previous example uses static IPAM. With static IPAM, the address must be
+unique to the node, and all node underlay addresses and the BGP neighbor
+addresses must be on the same network.
+
+The following example uses DHCP instead. The DHCP server must assign an
+address from the same underlay network, and it should reserve a stable address
+for each node. Pin the MAC address when a stable DHCP lease is required:
+
+[source,yaml]
+----
+spec:
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              capabilities:
+                mac: true
+              ipam:
+                type: dhcp
+        runtimeConfig:
+          mac: "<underlay-mac>"
+----
+
+Because the MAC address and the static address are node-specific, create a
+separate `Underlay` for each node in both the static and the DHCP variants.
+
+=== Complete underlay example
+
+The following example creates one `Underlay` for each of two worker nodes.
+Both nodes use a macvlan on `<node-nic>`, static addresses from the same
+underlay network, and the same external BGP speaker. Replace the placeholders
+with the values for your environment. The two underlay addresses must be in
+the same network as each other and as `<external-router-ip>`.
 
 [source,yaml]
 ----
 apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
-  name: underlay
+  name: underlay-worker0
   namespace: openshift-openperouter
 spec:
   nodeSelector:
     matchLabels:
-      node-role.kubernetes.io/worker: ""
-  asn: 64514
+      kubernetes.io/hostname: <worker-node-0>
+  asn: <cluster-asn>
   tunnelEndpoint:
     cidrs:
-      - 100.65.0.0/24
+      - <vtep-pool-cidr>
   neighbors:
-    - asn: 64512
-      address: 192.168.10.129
+    - asn: <external-router-asn>
+      address: <external-router-ip>
   interfaces:
     - type: CNIDevice
       cniDevice:
         type: RawConfig
-        interfaceName: net1
         rawConfig:
           cniVersion: "1.0.0"
           name: macvlan-underlay
           plugins:
             - type: macvlan
-              master: bond1
+              master: <node-nic>
               mode: bridge
               ipam:
                 type: static
                 addresses:
-                  - address: 10.200.11.50/16
+                  - address: <underlay-ip-0>/<prefix-length>
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker1
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-1>
+  asn: <cluster-asn>
+  tunnelEndpoint:
+    cidrs:
+      - <vtep-pool-cidr>
+  neighbors:
+    - asn: <external-router-asn>
+      address: <external-router-ip>
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: <underlay-ip-1>/<prefix-length>
 ----
 
-`nodeSelector`:: Selects the nodes that run the router configuration. The
-selector uses standard Kubernetes label selector semantics. If you are using
-static IPAM, you should have one `Underlay` CR for each node.
+The resource also exposes the following optional advanced fields. The
+reference configurations do not use them.
 
-`asn`:: The autonomous system number that the cluster nodes use toward the
-external fabric. All nodes in one EVPN domain normally share it.
+`routerIDCIDR`:: Defines the IPv4 CIDR pool from which each node derives a
+unique BGP router ID. The default is `10.0.0.0/24`.
 
-`tunnelEndpoint.cidrs`:: One or more address pools from which each node
-allocates its VTEP address. The addresses must be routable over the underlay.
+`gracefulRestart`:: Enables BGP graceful restart. The `restartTimeSeconds`
+value defaults to `120`, and the `stalePathTimeSeconds` value defaults to
+`360`.
 
-`neighbors`:: The external BGP peers. Each entry has an `asn` and an
-`address`. Optional fields include `passwordSecret`, `holdTimeSeconds`,
-`bfd`, and `addressFamilies`.
-
-`interfaces`:: The underlay interfaces. Each entry uses `type: CNIDevice` with
-a `cniDevice` raw CNI configuration. The raw configuration creates a macvlan
-or ipvlan device on top of a node interface or bridge, and obtains its address
-through DHCP or static IPAM. If you need static addresses or per-node MAC
-addresses, configure the `nodeSelector` and the raw configuration accordingly.
-
-The resource also exposes optional advanced fields such as `routerIDCIDR`,
-`gracefulRestart`, `isis`, `srv6`, and `routeReflector`. The reference
-configurations do not use them.
+`routeReflector`:: Configures the node as a BGP route reflector. The
+`clusterID` value defaults to `192.0.2.1` and must be outside the
+`routerIDCIDR` range.
 
 == L3VNI
 
