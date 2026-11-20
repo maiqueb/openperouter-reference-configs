@@ -19,30 +19,36 @@ so that you can confirm the assumptions before you start.
 
 * An OpenShift Container Platform cluster with cluster-admin access and the
   `oc` CLI.
-* OVN-Kubernetes as the cluster network provider, with Multus available for
-  secondary networks.
-* A dedicated NIC, a bond, a shared NIC, or a bridge that can carry the
-  underlay and the EVPN workload segment. The underlay uses a macvlan or
-  ipvlan device on top of that interface or bridge. The shared NIC model
-  additionally requires that OVN-Kubernetes already use `br-ex`.
+* OVN-Kubernetes as the cluster network provider.
+* A physical network, reachable through the OpenShift cluster uplink, that
+  allows VXLAN-encapsulated traffic and BGP peering between the cluster nodes
+  and the external router.
 * The Kubernetes NMState Operator installed and a `NMState` instance created.
 * OpenPERouter v{openperouter-version} installed in the
   `openshift-openperouter` namespace.
 * OpenShift Virtualization installed and a `HyperConverged` instance created.
-* An external router that runs FRR and has one interface on the underlay
-  network, one interface on the external client network, and VXLAN and BGP
-  connectivity to the cluster nodes.
+* An external router, if you want to stretch a Layer 2 segment across sites
+  or connect the workloads to an external routed network through EVPN. The
+  router has one interface on the underlay network, one interface on the
+  external client network, and VXLAN and BGP connectivity to the cluster
+  nodes.
 
 == Design choices
+
+EVPN fabric:: The set of VTEPs that exchange EVPN routes and participate in
+the same VXLAN overlay. Members are the OpenShift cluster nodes and any
+external routers that you connect to the workloads. All members must reach
+each other over the underlay and must agree on the VNI identifiers and the
+Layer 2 and Layer 3 segments that the fabric carries.
 
 VNI layout:: Reserve one L3VNI for the tenant VRF and one L2VNI for each
 Layer 2 segment. VNI identifiers must be unique within the EVPN fabric, not
 only within the cluster. The examples use VNI 100 for the L3VNI and VNI 110
 for the workload L2VNI.
 
-VRF name:: Use one VRF per tenant and use the same name on every node. The
-VRF name is independent of the L3VNI object name. In the Linux bridge example,
-the L3VNI object is `red-100` and its VRF is `red`.
+VRF name:: Use one VRF per tenant. The VRF name is independent of the L3VNI
+object name. In the Linux bridge example, the L3VNI object is `red-100` and its
+VRF is `red`.
 
 Gateway address:: Use an anycast gateway address that is outside the range
 that DHCP or static allocation assigns to workloads. The examples use the
@@ -52,21 +58,9 @@ MTU:: VXLAN adds 50 bytes of encapsulation. The underlay must carry the
 encapsulated frame, and the workload interface must use an MTU that fits
 inside the tunnel. The repository results show an underlay MTU of 1500 and an
 L2VNI SVI MTU of 1450. The exact value depends on your underlay and on any
-additional encapsulation. Verify it with `ping -M do -s <size>` rather than
-assuming a fixed offset.
+additional encapsulation.
 
-Underlay addressing:: Static addresses are easier to troubleshoot and are used
-by the dedicated bridge and Linux bridge examples. DHCP is used by the shared
-single NIC example, where the underlay interface is a macvlan created through
-a CNI device. DHCP requires `capabilities.mac` and a stable `runtimeConfig.mac`
-so that the external router can identify the peer.
-
-Bond mode:: A kernel bond in `active-backup` mode can host a macvlan for the
-underlay and is the simplest choice when the bond is dedicated to OpenPERouter.
-An OVS bond in `balance-slb` mode is an alternative for the shared model, but
-an OVS bond is not a kernel network device, so a macvlan cannot be created
-directly on it. Attach the macvlan to an OVS internal interface instead. Do
-not combine the two bond variants in the same bridge.
+Underlay addressing:: You can use either static addresses, or get IPs from DHCP.
 
 [role="_additional-resources"]
 == Additional resources
