@@ -1,12 +1,16 @@
 ---
-apiVersion: openpe.openperouter.github.io/v1alpha1
+# One Underlay per node: the raw CNI config carries that node's own static
+# address, and the macvlan is created by the CNI plugin inside the router
+# netns. The host's node NIC is left untouched.
+apiVersion: network.openperouter.io/v1alpha1
 kind: Underlay
 metadata:
-  name: underlay
+  name: underlay-$NODE0_HOSTNAME
+  namespace: $NAMESPACE
 spec:
   nodeSelector:
     matchLabels:
-      node-role.kubernetes.io/worker: ''
+      kubernetes.io/hostname: $NODE0
   asn: $CLUSTER_ASN
   tunnelEndpoint:
     cidrs:
@@ -14,4 +18,52 @@ spec:
   neighbors:
     - asn: $NEI_ASN
       address: $NEI_IP
-  nics: [ $NICS ]
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: $UNDERLAY_IFACE_NAME
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: $NET1_NODE_NIC
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: $NET1_MVLN_NODE0_IP/$UNDERLAY_PREFIX
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-$NODE1_HOSTNAME
+  namespace: $NAMESPACE
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: $NODE1
+  asn: $CLUSTER_ASN
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: $NEI_ASN
+      address: $NEI_IP
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: $UNDERLAY_IFACE_NAME
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: $NET1_NODE_NIC
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: $NET1_MVLN_NODE1_IP/$UNDERLAY_PREFIX

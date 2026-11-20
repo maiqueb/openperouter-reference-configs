@@ -1,7 +1,0 @@
-FROM quay.io/frrouting/frr:10.6.0
-
-COPY network-setup.sh /entrypoint.sh
-
-RUN chmod +x /entrypoint.sh
-
-ENTRYPOINT ["/entrypoint.sh"]

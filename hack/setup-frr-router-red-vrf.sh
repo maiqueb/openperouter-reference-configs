@@ -8,8 +8,17 @@ ip addr add 100.64.0.1/32 dev lo
 
 ip link add red type vrf table 1100
 
-# Leaf - host leg
-ip link set eth1 master red
+# External-client leg. With the recommended podman invocation:
+#   --network default-network --network net1-ext --network my-isolated-network
+# eth0 is the default network, eth1 is net1-ext (the BGP underlay, which must
+# stay in the default VRF), and eth2 is the isolated external-client network.
+# Override CLIENT_NIC if podman names the interfaces differently.
+CLIENT_NIC="${CLIENT_NIC:-eth2}"
+if ! ip link show "$CLIENT_NIC" >/dev/null 2>&1; then
+  echo "FATAL: external-client NIC [$CLIENT_NIC] not found; set CLIENT_NIC" >&2
+  exit 1
+fi
+ip link set "$CLIENT_NIC" master red
 
 ip link set red up
 ip link add br100 type bridge
