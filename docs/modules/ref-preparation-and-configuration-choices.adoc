@@ -1,0 +1,68 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: REFERENCE
+[id="ref-preparation-and-configuration-choices_{context}"]
+= Preparation and configuration choices
+
+[role="_abstract"]
+Before you install the operators or create any OpenPERouter resources, decide
+which attachment model fits your cluster and review the assumptions that the
+examples make.
+
+== What the examples assume
+
+The procedures and examples in this assembly assume the following
+environment. The procedures create most of these resources; the list is here
+so that you can confirm the assumptions before you start.
+
+* An OpenShift Container Platform cluster with cluster-admin access and the
+  `oc` CLI.
+* OVN-Kubernetes as the cluster network provider.
+* A physical network, reachable through the OpenShift cluster uplink, that
+  allows VXLAN-encapsulated traffic and BGP peering between the cluster nodes
+  and the external router.
+* The Kubernetes NMState Operator installed and a `NMState` instance created.
+* OpenShift Virtualization installed and a `HyperConverged` instance created.
+* An external router, if you want to stretch a Layer 2 segment across sites
+  or connect the workloads to an external routed network through EVPN. The
+  router has one interface on the underlay network, one interface on the
+  external client network, and VXLAN and BGP connectivity to the cluster
+  nodes.
+
+== Design choices
+
+EVPN fabric:: The set of VTEPs that exchange EVPN routes and participate in
+the same VXLAN overlay. Members are the OpenShift cluster nodes and any
+external routers that you connect to the workloads. All members must reach
+each other over the underlay and must agree on the VNI identifiers and the
+Layer 2 and Layer 3 segments that the fabric carries.
+
+VNI layout:: Reserve one L3VNI for the tenant VRF and one L2VNI for each
+Layer 2 segment. VNI identifiers must be unique within the EVPN fabric, not
+only within the cluster. The examples use VNI 100 for the L3VNI and VNI 110
+for the workload L2VNI.
+
+VRF name:: Use one VRF per tenant. The VRF name is independent of the L3VNI
+object name. In the Linux bridge example, the L3VNI object is `red-100` and its
+VRF is `red`.
+
+Gateway address:: Use an anycast gateway address that is outside the range
+allocated to workloads. The examples use the first address in the subnet,
+`192.170.1.1`.
+
+MTU:: VXLAN adds 50 bytes of encapsulation. The underlay must carry the
+encapsulated frame, and the workload interface must use an MTU that fits
+inside the tunnel. The repository results show an underlay MTU of 1500 and an
+L2VNI SVI MTU of 1450. The exact value depends on your underlay and on any
+additional encapsulation.
+
+Underlay addressing:: You can use either static addresses, or get IPs from DHCP.
+
+[role="_additional-resources"]
+== Additional resources
+
+* link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks[OpenShift Container Platform multiple networks]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/networking[OpenShift Virtualization networking]

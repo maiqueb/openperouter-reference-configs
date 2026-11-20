@@ -3,7 +3,7 @@ apiVersion: openpe.openperouter.github.io/v1alpha1
 kind: L3VNI
 metadata:
   name: red
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   vni: 100
   vrf: red
@@ -12,7 +12,7 @@ apiVersion: openpe.openperouter.github.io/v1alpha1
 kind: L2VNI
 metadata:
   name: layer2
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   hostmaster:
     ovsBridge:
@@ -27,7 +27,7 @@ apiVersion: openpe.openperouter.github.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-multi-homing-worker-0
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   asn: 64514
   nodeSelector:
@@ -60,7 +60,7 @@ apiVersion: openpe.openperouter.github.io/v1alpha1
 kind: Underlay
 metadata:
   name: underlay-multi-homing-worker-1
-  namespace: openperouter-system
+  namespace: openshift-openperouter
 spec:
   asn: 64514
   nodeSelector:

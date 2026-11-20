@@ -1,0 +1,515 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: CONCEPT
+[id="con-openperouter-configuration-model_{context}"]
+= OpenPERouter configuration model
+
+[role="_abstract"]
+OpenPERouter uses three custom resources. An `Underlay` describes how a node
+reaches the external fabric, an `L3VNI` describes a tenant VRF, and an `L2VNI`
+describes a Layer 2 segment and the host bridge that carries it. Multiple
+`L2VNI` can share the same VRF - thus, multiple `L2VNI` can point at the same
+`L3VNI`. You can think of this as several Layer 2 networks connected through a
+router: the router joins those networks to each other and to the outside world,
+and each network keeps its own broadcast domain. The `L3VNI` is that router, so
+traffic between the `L2VNI` segments and traffic to the external fabric both
+flow through the VRF it defines.
+
+.OpenPERouter resource relationships
+image::openperouter-resource-relationships.png[OpenPERouter resource relationships,width=640]
+
+== Underlay
+
+The `Underlay` resource tells OpenPERouter which nodes participate, how each
+node connects to the external fabric, and which external BGP routers it peers
+with. The following sections describe the node selection, the BGP peering, and
+the uplink connection separately, then combine them into a complete example.
+
+=== Scheduling
+
+The `nodeSelector` field selects the nodes that run the router configuration.
+It uses standard Kubernetes label selector semantics. Use the node hostname
+label to bind one `Underlay` to one node:
+
+[source,yaml]
+----
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+----
+
+An `Underlay` contains one set of node-specific values, such as the underlay
+IP address and MAC address. OpenPERouter applies the same values to every node
+that the selector matches; it does not substitute different values per node.
+If one `Underlay` matched several nodes and used a static address, all of those
+nodes would try to use the same address and MAC address, which causes address
+conflicts and leaves the underlay unusable.
+
+For that reason, the reference configurations create one `Underlay` per node.
+Use a selector that matches exactly one node, and repeat the resource for every
+worker node that must run OpenPERouter.
+
+=== Peering with the BGP speakers
+
+The `asn` field is the autonomous system number that the cluster node uses
+toward the external fabric. All nodes in one EVPN domain normally share it.
+The `neighbors` list contains the external BGP peers. Each entry requires an
+`asn` and an `address`:
+
+[source,yaml]
+----
+spec:
+  asn: <cluster-asn>
+  neighbors:
+    - asn: <external-router-asn>
+      address: <external-router-ip>
+----
+
+Each `neighbors` entry can also set optional fields such as
+`passwordSecret`, `holdTimeSeconds`, `bfd`, and `addressFamilies`.
+
+Use an external router address that the node can reach through its underlay
+interface. The node underlay address and the BGP neighbor address must be on
+the same network, so that the BGP session can be established directly over the
+underlay.
+
+The `tunnelEndpoint.cidrs` field defines the pool from which each node
+allocates its VTEP address. These addresses must be routable over the same
+underlay network. They are not part of the BGP peering itself, but the
+neighbors must be able to reach them.
+
+=== Uplink connection and IPAM
+
+The `interfaces` field defines how a node connects to the underlay. Each entry
+uses `type: CNIDevice` with a raw CNI configuration. The CNI plugin creates a
+macvlan or ipvlan device on top of a node interface inside the router pod,
+while the parent interface stays in the host network namespace:
+
+[source,yaml]
+----
+spec:
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: <underlay-ip>/<prefix-length>
+----
+
+Set `master` to the node interface or bridge that carries the underlay, for
+example `<node-nic>`. OpenPERouter assigns a default name to the device inside
+the router pod. The optional `interfaceName` field overrides that name.
+
+Use a macvlan when the underlay needs its own MAC address on the parent
+interface. Use an ipvlan when the underlay must share the MAC address of the
+parent, or when the parent cannot host a macvlan. To use an ipvlan, set the
+plugin `type` to `ipvlan`, and set `mode` to `l2` or `l3`.
+
+The previous example uses static IPAM. With static IPAM, the address must be
+unique to the node, and all node underlay addresses and the BGP neighbor
+addresses must be on the same network.
+
+The following example uses DHCP instead. The DHCP server must assign an
+address from the same underlay network, and it should reserve a stable address
+for each node. Pin the MAC address when a stable DHCP lease is required:
+
+[source,yaml]
+----
+spec:
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              capabilities:
+                mac: true
+              ipam:
+                type: dhcp
+        runtimeConfig:
+          mac: "<underlay-mac>"
+----
+
+Because the MAC address and the static address are node-specific, create a
+separate `Underlay` for each node in both the static and the DHCP variants.
+
+=== Complete underlay example
+
+The following example creates one `Underlay` for each of two worker nodes.
+Both nodes use a macvlan on `<node-nic>`, static addresses from the same
+underlay network, and the same external BGP speaker. Replace the placeholders
+with the values for your environment. The two underlay addresses must be in
+the same network as each other and as `<external-router-ip>`.
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: <cluster-asn>
+  tunnelEndpoint:
+    cidrs:
+      - <vtep-pool-cidr>
+  neighbors:
+    - asn: <external-router-asn>
+      address: <external-router-ip>
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: <underlay-ip-0>/<prefix-length>
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker1
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-1>
+  asn: <cluster-asn>
+  tunnelEndpoint:
+    cidrs:
+      - <vtep-pool-cidr>
+  neighbors:
+    - asn: <external-router-asn>
+      address: <external-router-ip>
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: <node-nic>
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: <underlay-ip-1>/<prefix-length>
+----
+
+The resource also exposes the following optional advanced fields. The
+reference configurations do not use them.
+
+`routerIDCIDR`:: Defines the IPv4 CIDR pool from which each node derives a
+unique BGP router ID. The default is `10.0.0.0/24`.
+
+`gracefulRestart`:: Enables BGP graceful restart. The `restartTimeSeconds`
+value defaults to `120`, and the `stalePathTimeSeconds` value defaults to
+`360`.
+
+`routeReflector`:: Configures the node as a BGP route reflector. The
+`clusterID` value defaults to `192.0.2.1` and must be outside the
+`routerIDCIDR` range.
+
+== L3VNI
+
+The `L3VNI` resource defines a tenant VRF and the VNI that carries
+inter-subnet traffic for that VRF.
+
+=== VRF and VNI
+
+The `spec.vrf` field is the name of the Linux VRF device that OpenPERouter
+creates inside the `perouter` network namespace. Use the same VRF name on every
+node that carries this tenant.
+
+The `spec.vni` field is the VXLAN VNI associated with the VRF. It must be
+unique in the EVPN fabric.
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L3VNI
+metadata:
+  name: <l3vni-name>
+  namespace: openshift-openperouter
+spec:
+  vrf: <vrf-name>
+  vni: <l3vni-vni>
+----
+
+The `metadata.name` value is the name of the `L3VNI` object. It is not the VRF
+name. An `L3VNI` object named `<l3vni-name>` can define a VRF named
+`<vrf-name>`. An `L2VNI` refers to the `L3VNI` object name, not to the VRF
+name.
+
+The resource also exposes the following optional fields. The reference
+configurations do not use them.
+
+`exportRTs` and `importRTs`:: Route targets used to export and import EVPN
+routes for the VRF. When omitted, FRR derives them from the local ASN and the
+VNI, for example `64514:100`. When you set an explicit import list, it
+replaces the derived list rather than adding to it. If you use explicit route
+targets in a multi-ASN fabric, list every ASN whose routes the VRF must import.
+
+`nodeSelector`:: Limits the `L3VNI` to the nodes that match the label selector.
+When omitted, the `L3VNI` applies to all nodes. Multiple `L3VNI` resources can
+match the same node.
+
+`rdAssignedNumber`:: Sets the assigned number of the Route Distinguisher. The
+administrator subfield is the node router ID, which forms a Type 1 Route
+Distinguisher as defined in RFC 4364. Valid values are `1` to `65535`.
+
+`vxlanPort`:: Sets the UDP port used for VXLAN encapsulation. The default is
+`4789`.
+
+`underlayAddressFamily`:: Selects the VTEP address family, either `IPv4` or
+`IPv6`. When omitted, OpenPERouter uses the family available in the underlay
+and prefers IPv4 in a dual-stack underlay.
+
+== L2VNI
+
+The `L2VNI` resource defines a Layer 2 segment and the host bridge that
+attaches it to the node.
+
+=== Host bridge attachment
+
+The `spec.hostMaster` field defines the host bridge that carries the Layer 2
+segment. Set `type` to `OVSBridge` or `LinuxBridge`, and configure the matching
+`ovsBridge` or `linuxBridge` object.
+
+Only the `External` lifecycle is supported. OpenPERouter does not create or
+delete the bridge. The bridge must already exist and be owned by another
+component, such as a `NodeNetworkConfigurationPolicy` or OVN-Kubernetes. The
+`name` field identifies the existing bridge.
+
+The OVS bridge variant is:
+
+[source,yaml]
+----
+spec:
+  hostMaster:
+    type: OVSBridge
+    ovsBridge:
+      lifecycle: External
+      name: <ovs-bridge-name>
+----
+
+The Linux bridge variant is:
+
+[source,yaml]
+----
+spec:
+  hostMaster:
+    type: LinuxBridge
+    linuxBridge:
+      lifecycle: External
+      name: <linux-bridge-name>
+----
+
+=== VNI
+
+The `spec.vni` field is the VXLAN VNI for the Layer 2 segment. It must be
+unique in the EVPN fabric.
+
+[source,yaml]
+----
+spec:
+  vni: <l2vni-vni>
+----
+
+=== Routing domain
+
+The `spec.routingDomain` field associates the `L2VNI` with an `L3VNI`. Set
+`type` to `L3VNI`, and set `l3vni.name` to the `metadata.name` of the `L3VNI`
+object, not to the VRF name. Omit `routingDomain` for a pure Layer 2 segment
+that only provides east/west connectivity.
+
+[source,yaml]
+----
+spec:
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: <l3vni-name>
+----
+
+=== Anycast gateway
+
+The `spec.gatewayIPs` field defines the distributed anycast gateway addresses
+on the L2VNI bridge, in CIDR notation. You can set at most two addresses, one
+IPv4 and one IPv6. An `L2VNI` can have a gateway only when it also has a
+`routingDomain`; a pure Layer 2 `L2VNI` has no `gatewayIPs`. Use an address
+that is outside the range assigned to workloads.
+
+[source,yaml]
+----
+spec:
+  gatewayIPs:
+    - <gateway-ip>/<prefix-length>
+----
+
+=== Complete L2VNI example
+
+The following example associates the `L2VNI` with an `L3VNI` and configures an
+anycast gateway. Use one of the two host bridge variants.
+
+The OVS bridge variant is:
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: <l2vni-name>
+  namespace: openshift-openperouter
+spec:
+  vni: <l2vni-vni>
+  hostMaster:
+    type: OVSBridge
+    ovsBridge:
+      lifecycle: External
+      name: <ovs-bridge-name>
+  gatewayIPs:
+    - <gateway-ip>/<prefix-length>
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: <l3vni-name>
+----
+
+The Linux bridge variant is:
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: <l2vni-name>
+  namespace: openshift-openperouter
+spec:
+  vni: <l2vni-vni>
+  hostMaster:
+    type: LinuxBridge
+    linuxBridge:
+      lifecycle: External
+      name: <linux-bridge-name>
+  gatewayIPs:
+    - <gateway-ip>/<prefix-length>
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: <l3vni-name>
+----
+
+=== Complete pure Layer 2 L2VNI example
+
+A pure Layer 2 `L2VNI` has no `routingDomain` and no `gatewayIPs`. It only
+stretches the Layer 2 segment across the EVPN fabric. The following example
+uses a Linux bridge; replace the `hostMaster` block with the OVS bridge variant
+if needed.
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: <l2vni-name>
+  namespace: openshift-openperouter
+spec:
+  vni: <l2vni-vni>
+  hostMaster:
+    type: LinuxBridge
+    linuxBridge:
+      lifecycle: External
+      name: <linux-bridge-name>
+----
+
+The resource also exposes the following optional fields. The reference
+configurations do not use them.
+
+`exportRTs` and `importRTs`:: Route targets used to export and import L2 EVPN
+routes. When omitted, FRR derives them from the local ASN and the VNI. An
+explicit import list replaces the derived list rather than adding to it.
+
+`nodeSelector`:: Limits the `L2VNI` to the nodes that match the label selector.
+When omitted, the `L2VNI` applies to all nodes. Multiple `L2VNI` resources can
+match the same node.
+
+`rdAssignedNumber`:: Sets the assigned number of the Route Distinguisher. The
+administrator subfield is the node router ID, which forms a Type 1 Route
+Distinguisher as defined in RFC 4364. Valid values are `1` to `65535`.
+
+`vxlanPort`:: Sets the UDP port used for VXLAN encapsulation. The default is
+`4789`.
+
+`underlayAddressFamily`:: Selects the VTEP address family, either `IPv4` or
+`IPv6`. When omitted, OpenPERouter uses the family available in the underlay
+and prefers IPv4 in a dual-stack underlay.
+
+`trunk`:: Selects a shared `L2Trunk` and a VLAN tag instead of a `hostMaster`.
+The reference and tag are immutable, and `trunk` cannot be combined with
+`hostMaster`.
+
+== How the router pod realizes the resources
+
+On each selected node, the router pod creates the following objects in the
+persistent `perouter` network namespace:
+
+* A VRF device for each L3VNI, named after the VRF.
+* A bridge and a VXLAN interface for each L3VNI, for example `br-pe-100` and
+  `vni100`.
+* A bridge, a VXLAN interface, and a veth pair for each L2VNI, for example
+  `br-pe-110`, `vni110`, and a veth peer that attaches to the host bridge.
+* The anycast gateway address on the L2VNI bridge.
+
+== Where NMState ends and OpenPERouter begins
+
+`NodeNetworkConfigurationPolicy` is an `nmstate.io/v1` resource. It is not an
+OpenPERouter resource. NMState creates the host bridge, bond, or macvlan. The
+`L2VNI` then attaches to that bridge with `lifecycle: External`.
+
+For an OVN-Kubernetes localnet bridge, the NMState policy must:
+
+* Create an OVS bridge with `allow-extra-patch-ports: true`. OVN-Kubernetes
+  adds a patch port to connect the bridge to `br-int`; without this option,
+  OVN-Kubernetes cannot attach the localnet network.
+* Disable Spanning Tree Protocol with `stp: false`. OVN-Kubernetes does not
+  support STP on a localnet bridge.
+* Add the bridge mapping under `ovn.bridge-mappings`, for example
+  `localnet: datanet` and `bridge: ovsbr1`. The `ClusterUserDefinedNetwork`
+  `localnet.physicalNetworkName` must match the `localnet` value.
+
+[role="_additional-resources"]
+== Additional resources
+
+* xref:proc-configuring-ovn-kubernetes-localnet_{context}[Configuring OVN-Kubernetes localnet with a dedicated bridge]
+* xref:proc-configuring-a-linux-bridge_{context}[Configuring a Linux bridge]
+* link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]

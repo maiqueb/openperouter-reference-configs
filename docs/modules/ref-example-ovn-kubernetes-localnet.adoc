@@ -1,0 +1,336 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: REFERENCE
+[id="ref-example-ovn-kubernetes-localnet_{context}"]
+= Complete example: OVN-Kubernetes localnet with a dedicated bridge
+
+[role="_abstract"]
+The following manifests implement the dedicated bridge model: a kernel bond
+for the underlay, an OVS bridge for the OVN-Kubernetes localnet, an EVPN L2VNI
+and L3VNI, a localnet `ClusterUserDefinedNetwork`, and two virtual machines on
+different nodes.
+
+The NNCP and virtual machine manifests are based on
+`localnet/dedicated-bridge/` and are usable as-is after you replace the node
+names and addresses. The network attachment is expressed as a
+`ClusterUserDefinedNetwork`, so OVN-Kubernetes creates the corresponding
+`NetworkAttachmentDefinition`. The OpenPERouter resources are converted from the legacy
+`openpe.openperouter.github.io/v1alpha1` API to
+`network.openperouter.io/v1alpha1`. The external router configuration is
+adapted from `linux-bridge/external-router/` because the dedicated bridge
+directory does not include a router artifact.
+
+== Node network configuration
+
+[source,yaml]
+----
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: dedicated-linux-bond-iface
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  desiredState:
+    interfaces:
+      - name: bond1
+        type: bond
+        state: up
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        link-aggregation:
+          mode: active-backup
+          port:
+            - ens4
+            - ens5
+      - name: ens4
+        type: ethernet
+        state: up
+      - name: ens5
+        type: ethernet
+        state: up
+      - name: ovsbr1
+        type: ovs-interface
+        state: up
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+      - name: ovsbr1
+        type: ovs-bridge
+        state: up
+        bridge:
+          allow-extra-patch-ports: true
+          options:
+            stp: false
+          port:
+            - name: ovsbr1
+    ovn:
+      bridge-mappings:
+        - bridge: ovsbr1
+          localnet: datanet
+          state: present
+----
+
+This policy creates a kernel bond from `ens4` and `ens5` and an OVS bridge
+named `ovsbr1` with no uplink. OVN-Kubernetes adds its patch port to
+`ovsbr1`, and the bridge mapping associates the bridge with the localnet name
+`datanet`.
+
+The alternative file `nncp-balance-slb.yaml` creates an OVS bond in
+`balance-slb` mode inside `ovsbr1`. Use one variant only. An OVS bond is not a
+kernel network device, so the underlay macvlan cannot use it as a parent.
+
+== Underlay
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 10.200.11.8
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: bond1
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 10.200.11.50/16
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker1
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-1>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 10.200.11.8
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: bond1
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 10.200.11.51/16
+----
+
+== VNIs and anycast gateway
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: L3VNI
+metadata:
+  name: red
+  namespace: openshift-openperouter
+spec:
+  vni: 100
+  vrf: red
+---
+apiVersion: network.openperouter.io/v1alpha1
+kind: L2VNI
+metadata:
+  name: layer2
+  namespace: openshift-openperouter
+spec:
+  hostMaster:
+    type: OVSBridge
+    ovsBridge:
+      lifecycle: External
+      name: ovsbr1
+  gatewayIPs:
+    - 192.170.1.1/24
+  vni: 110
+  routingDomain:
+    type: L3VNI
+    l3vni:
+      name: red
+----
+
+== Localnet network attachment
+
+[source,yaml]
+----
+apiVersion: k8s.ovn.org/v1
+kind: ClusterUserDefinedNetwork
+metadata:
+  name: evpn
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: default
+  network:
+    topology: Localnet
+    localnet:
+      role: Secondary
+      physicalNetworkName: datanet
+      ipam:
+        mode: Disabled
+----
+
+`ipam.mode: Disabled` makes OVN-Kubernetes assign only a MAC address and
+leave IP configuration to the workload. The virtual machines below set their
+own static addresses through cloud-init, and OpenPERouter provides the anycast
+gateway. The OVN-Kubernetes controller creates a
+`NetworkAttachmentDefinition` named `evpn` in the `default` namespace, so the
+`default/evpn` network name in the virtual machine manifests still applies.
+
+== Virtual machines
+
+[source,yaml]
+----
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm-1
+  namespace: default
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: <worker-node-0>
+      domain:
+        devices:
+          interfaces:
+            - bridge: {}
+              name: evpn
+          disks:
+            - name: containerdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+        resources:
+          requests:
+            memory: 2048M
+      networks:
+        - multus:
+            networkName: default/evpn
+          name: evpn
+      terminationGracePeriodSeconds: 0
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: quay.io/kubevirt/fedora-with-test-tooling-container-disk:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                eth0:
+                  addresses:
+                    - 192.170.1.3/24
+                  gateway4: 192.170.1.1
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm-2
+  namespace: default
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: <worker-node-1>
+      domain:
+        devices:
+          interfaces:
+            - bridge: {}
+              name: evpn
+          disks:
+            - name: containerdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+        resources:
+          requests:
+            memory: 2048M
+      networks:
+        - multus:
+            networkName: default/evpn
+          name: evpn
+      terminationGracePeriodSeconds: 0
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: quay.io/kubevirt/fedora-with-test-tooling-container-disk:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            networkData: |
+              version: 2
+              ethernets:
+                eth0:
+                  addresses:
+                    - 192.170.1.4/24
+                  gateway4: 192.170.1.1
+----
+
+== Verification
+
+[source,terminal]
+----
+$ oc get nncp dedicated-linux-bond-iface -o yaml
+$ oc get nnce -l nmstate.io/policy=dedicated-linux-bond-iface -o yaml
+$ oc get clusteruserdefinednetwork evpn -o yaml
+$ oc get routernodeconfigurationstatus -n openshift-openperouter
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
+    vtysh -c 'show evpn vni'
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
+    vtysh -c 'show bgp l2vpn evpn route type 2'
+$ podman exec frr vtysh -c 'show bgp l2vpn evpn summary'
+----
+
+In `status.conditions` of the policy, `Available` must be `True` with reason
+`SuccessfullyConfigured`, and each enactment must report `Available: True`.
+In `status.conditions` of the `ClusterUserDefinedNetwork`, `NetworkCreated`
+must be `True` with reason `NetworkAttachmentDefinitionCreated`. Each
+`RouterNodeConfigurationStatus` must show `READY` as `True` and `DEGRADED` as
+`False`, with an empty `status.failedResources`.
+
