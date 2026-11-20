@@ -11,7 +11,11 @@ OpenPERouter uses three custom resources. An `Underlay` describes how a node
 reaches the external fabric, an `L3VNI` describes a tenant VRF, and an `L2VNI`
 describes a Layer 2 segment and the host bridge that carries it. Multiple
 `L2VNI` can share the same VRF - thus, multiple `L2VNI` can point at the same
-`L3VNI`.
+`L3VNI`. You can think of this as several Layer 2 networks connected through a
+router: the router joins those networks to each other and to the outside world,
+and each network keeps its own broadcast domain. The `L3VNI` is that router, so
+traffic between the `L2VNI` segments and traffic to the external fabric both
+flow through the VRF it defines.
 
 .OpenPERouter resource relationships
 image::openperouter-resource-relationships.png[OpenPERouter resource relationships,width=640]
