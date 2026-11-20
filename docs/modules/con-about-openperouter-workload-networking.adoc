@@ -77,8 +77,8 @@ Layer 3 network that is controlled by a BGP EVPN fabric. OpenPERouter addresses
 the following workload networking requirements:
 
 *Unified Layer 2 segment*:: You need virtual machines on an EVPN-backed
-network to have Layer 2 adjacency to endpoints in other clusters, including
-clusters managed by hosted control planes, and to external fabric services.
+network to have Layer 2 adjacency to endpoints in other clusters, and to
+external fabric services.
 This lets you provide application teams with a single Layer 2 segment that
 spans sites and administrative domains instead of maintaining a separate
 isolated segment per cluster.
@@ -90,35 +90,36 @@ routing policy, without relying on a single central gateway.
 *Tenant isolation*:: You need tenant networks to be isolated in separate VRFs
 while sharing the same physical underlay and EVPN fabric. Each tenant network
 can have its own routing table without requiring a dedicated uplink per tenant.
-*Nested workloads and traffic monitoring*:: You need to configure MAC spoof
-filtering and promiscuous mode on VM interfaces to support applications such as
-nested workloads and traffic monitoring. These settings require the Linux
-bridge attachment model with a network attachment definition. They are not
-available with the OVN-Kubernetes localnet attachment model.
+*Virtual network functions (VNFs)*:: You need to run VNFs and other workloads
+that require flexible, unmanaged networking. OpenPERouter gives tenants the
+Layer 2 and Layer 3 connectivity such applications need, so they can bring
+their own load balancers, firewalls, and other network applications instead of
+adapting them to the managed cluster network.
+*Nested workloads*:: You need to configure MAC spoof filtering mode on VM
+interfaces to support applications such as nested workloads. These settings
+require the Linux bridge attachment model with a network attachment definition.
+They are not available with the OVN-Kubernetes localnet attachment model.
 *Flexible IP addressing*:: You need to fully manage IP addressing on VM
 interfaces attached to the EVPN-backed network, for example to assign one or
 more IP addresses, use static addressing, or use an external DHCP server that
 is reachable on the segment. This lets you keep your existing IP management
-workflows instead of adapting them to the cluster network. OpenPERouter can
-also acquire the VTEP addresses of the underlay through DHCP IPAM when a DHCP
-server is available on the uplink Layer 2 network.
+workflows instead of adapting them to the cluster network.
 *Workload mobility*:: You need a VM to move between nodes without changing its
 default gateway. OpenPERouter distributes the gateway IP address and MAC
 address as an anycast address on every participating node, so the workload
 keeps the same Layer 2 and Layer 3 identity after migration.
 
-Do not use OpenPERouter as a general-purpose pod network. The cluster network
-provider still provides the default pod network, service networking, and
-network policy for the default network. OpenPERouter adds a secondary network
-path.
+OpenPERouter serves as a building block enhancing existing secondary networks
+with EVPN capabilities. It does not replace the pod network, but complements it
+in cases where traditional networking features and flexibility is required.
 
 [id="workload-attachment-models_{context}"]
 == Workload attachment models
 
 OpenPERouter is an integration point between the workload network and the
 physical network. On the physical side, the router pod peers with the external
-fabric. On the workload side, it connects to the workload network. Both sides
-use a CNI plugin.
+fabric. On the workload side it connects to VMs through the standard secondary
+L2 networking tooling. Both sides use a CNI plugin.
 
 OpenShift Container Platform supports the following CNI-based attachment
 models for workloads:
@@ -129,7 +130,7 @@ features such as micro-segmentation for the workload network, or when you would
 use the `ClusterUserDefinedNetwork` API.
 *Linux bridge*:: Workloads connect through a Linux bridge. This model supports
 features that the OVN-Kubernetes localnet model does not, such as MAC spoof
-filtering and promiscuous mode.
+filtering control and promiscuous mode.
 
 You choose the model that matches the CNI plugin and the requirements of your
 workloads.
