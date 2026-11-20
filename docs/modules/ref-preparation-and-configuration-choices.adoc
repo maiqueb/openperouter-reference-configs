@@ -24,8 +24,6 @@ so that you can confirm the assumptions before you start.
   allows VXLAN-encapsulated traffic and BGP peering between the cluster nodes
   and the external router.
 * The Kubernetes NMState Operator installed and a `NMState` instance created.
-* OpenPERouter v{openperouter-version} installed in the
-  `openshift-openperouter` namespace.
 * OpenShift Virtualization installed and a `HyperConverged` instance created.
 * An external router, if you want to stretch a Layer 2 segment across sites
   or connect the workloads to an external routed network through EVPN. The
@@ -51,8 +49,8 @@ object name. In the Linux bridge example, the L3VNI object is `red-100` and its
 VRF is `red`.
 
 Gateway address:: Use an anycast gateway address that is outside the range
-that DHCP or static allocation assigns to workloads. The examples use the
-first address in the subnet, `192.170.1.1`.
+allocated to workloads. The examples use the first address in the subnet,
+`192.170.1.1`.
 
 MTU:: VXLAN adds 50 bytes of encapsulation. The underlay must carry the
 encapsulated frame, and the workload interface must use an MTU that fits
