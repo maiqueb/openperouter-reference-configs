@@ -20,6 +20,34 @@ flow through the VRF it defines.
 .OpenPERouter resource relationships
 image::openperouter-resource-relationships.png[OpenPERouter resource relationships,width=640]
 
+The attachment model determines how the workload side connects to the Layer 2
+segment, and therefore how the `L2VNI` host bridge is plumbed to the workloads.
+Choose the model before you create the resources.
+
+[id="workload-attachment-models_{context}"]
+== Workload attachment models
+
+OpenPERouter is an integration point between the workload network and the
+physical network. On the physical side, the router pod peers with the external
+fabric. On the workload side it connects to VMs through the standard secondary
+L2 networking tooling. Both sides use a CNI plugin.
+
+OpenShift Container Platform supports the following CNI-based attachment
+models for workloads:
+
+*OVN-Kubernetes localnet*:: Workloads connect through an OVS bridge. This model
+integrates with OVN-Kubernetes network capabilities. Use it when you need
+features such as micro-segmentation for the workload network, or when you would
+use the `ClusterUserDefinedNetwork` API.
+*Linux bridge*:: Workloads connect through a Linux bridge. This model supports
+features that the OVN-Kubernetes localnet model does not, such as MAC spoof
+filtering control and promiscuous mode.
+
+You choose the model that matches the CNI plugin and the requirements of your
+workloads. The model also determines the `hostMaster` type that the `L2VNI`
+uses: `OVSBridge` for OVN-Kubernetes localnet, or `LinuxBridge` for the Linux
+bridge model.
+
 == Underlay
 
 The `Underlay` resource tells OpenPERouter which nodes participate, how each
