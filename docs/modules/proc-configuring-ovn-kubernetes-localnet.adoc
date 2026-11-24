@@ -14,7 +14,7 @@ L2VNI provides the EVPN stretch and the anycast gateway.
 .Prerequisites
 
 * The Kubernetes NMState Operator and OpenPERouter are installed.
-* The worker nodes that run OpenPERouter have a dedicated NIC or bond for the
+* The worker nodes that run OpenPERouter have a dedicated NIC for the
   underlay. The procedure works on a single-node cluster and on clusters with
   multiple nodes.
 * The external router is configured and reachable from the node underlay
@@ -25,39 +25,28 @@ L2VNI provides the EVPN stretch and the anycast gateway.
 .Procedure
 
 . Create the OVS bridge and the OVN-Kubernetes bridge mapping. The following
-`NodeNetworkConfigurationPolicy` assumes the user has two free interfaces to
-bond, and creates a kernel `bond1` for the underlay and a separate OVS bridge
-`ovsbr1` for the localnet:
+`NodeNetworkConfigurationPolicy` assumes `ens4` is a free NIC dedicated to the
+OpenPERouter underlay, and creates a separate OVS bridge `ovsbr1` for the
+localnet:
 +
 [source,yaml]
 ----
 apiVersion: nmstate.io/v1
 kind: NodeNetworkConfigurationPolicy
 metadata:
-  name: dedicated-linux-bond-iface
+  name: dedicated-linux-nic-iface
 spec:
   nodeSelector:
     node-role.kubernetes.io/worker: ""
   desiredState:
     interfaces:
-      - name: bond1
-        type: bond
+      - name: ens4
+        type: ethernet
         state: up
         ipv4:
           enabled: false
         ipv6:
           enabled: false
-        link-aggregation:
-          mode: active-backup
-          port:
-            - ens4
-            - ens5
-      - name: ens4
-        type: ethernet
-        state: up
-      - name: ens5
-        type: ethernet
-        state: up
       - name: ovsbr1
         type: ovs-interface
         state: up
@@ -81,7 +70,7 @@ spec:
           state: present
 ----
 +
-In this variant, `bond1` is a kernel bond used only for the OpenPERouter
+In this variant, `ens4` is the regular NIC used only for the OpenPERouter
 underlay, and `ovsbr1` is a bridge with no physical uplink. VXLAN carries the
 workload Layer 2 segment, so `ovsbr1` does not need an uplink port.
 
@@ -89,8 +78,8 @@ workload Layer 2 segment, so `ovsbr1` does not need an uplink port.
 +
 [source,terminal]
 ----
-$ oc apply -f 01-bond-config-plus-ovs-bridge-for-localnet.yaml
-$ oc wait nncp dedicated-linux-bond-iface \
+$ oc apply -f 01-nic-config-plus-ovs-bridge-for-localnet.yaml
+$ oc wait nncp dedicated-linux-nic-iface \
     --for=condition=Available --timeout=10m
 ----
 +
@@ -100,7 +89,7 @@ The `oc wait` command returns when the policy `Available` status condition is
 . Configure the underlay. Use a `CNIDevice` whose raw configuration creates a
 macvlan (or ipvlan) device on top of the node interface or bridge. In the
 following example we use an `Underlay` configuration with a macvlan on
-`bond1` with static addresses:
+`ens4` with static addresses:
 +
 [source,yaml]
 ----
@@ -130,7 +119,7 @@ spec:
           name: macvlan-underlay
           plugins:
             - type: macvlan
-              master: bond1
+              master: ens4
               mode: bridge
               ipam:
                 type: static
@@ -248,8 +237,8 @@ and the OVN-Kubernetes bridge mapping were applied on every node:
 +
 [source,terminal]
 ----
-$ oc get nncp dedicated-linux-bond-iface -o yaml
-$ oc get nnce -l nmstate.io/policy=dedicated-linux-bond-iface -o yaml
+$ oc get nncp dedicated-linux-nic-iface -o yaml
+$ oc get nnce -l nmstate.io/policy=dedicated-linux-nic-iface -o yaml
 ----
 +
 In `status.conditions` of the policy, `Available` must be `True` with reason

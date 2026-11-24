@@ -46,7 +46,7 @@ spec:
           name: macvlan-underlay
           plugins:
             - type: macvlan
-              master: bond1
+              master: ens4
               mode: bridge
               ipam:
                 type: static
@@ -79,7 +79,7 @@ spec:
           name: macvlan-underlay
           plugins:
             - type: macvlan
-              master: bond1
+              master: ens4
               mode: bridge
               ipam:
                 type: static

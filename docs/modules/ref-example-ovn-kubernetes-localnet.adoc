@@ -7,7 +7,7 @@
 = Complete example: OVN-Kubernetes localnet with a dedicated bridge
 
 [role="_abstract"]
-The following manifests implement the dedicated bridge model: a kernel bond
+The following manifests implement the dedicated bridge model: a regular NIC
 for the underlay, an OVS bridge for the OVN-Kubernetes localnet, an EVPN L2VNI
 and L3VNI, a localnet `ClusterUserDefinedNetwork`, and two virtual machines on
 different nodes.
@@ -29,30 +29,19 @@ directory does not include a router artifact.
 apiVersion: nmstate.io/v1
 kind: NodeNetworkConfigurationPolicy
 metadata:
-  name: dedicated-linux-bond-iface
+  name: dedicated-linux-nic-iface
 spec:
   nodeSelector:
     node-role.kubernetes.io/worker: ""
   desiredState:
     interfaces:
-      - name: bond1
-        type: bond
+      - name: ens4
+        type: ethernet
         state: up
         ipv4:
           enabled: false
         ipv6:
           enabled: false
-        link-aggregation:
-          mode: active-backup
-          port:
-            - ens4
-            - ens5
-      - name: ens4
-        type: ethernet
-        state: up
-      - name: ens5
-        type: ethernet
-        state: up
       - name: ovsbr1
         type: ovs-interface
         state: up
@@ -76,14 +65,14 @@ spec:
           state: present
 ----
 
-This policy creates a kernel bond from `ens4` and `ens5` and an OVS bridge
-named `ovsbr1` with no uplink. OVN-Kubernetes adds its patch port to
+This policy uses `ens4` as a regular NIC for the underlay and creates an OVS
+bridge named `ovsbr1` with no uplink. OVN-Kubernetes adds its patch port to
 `ovsbr1`, and the bridge mapping associates the bridge with the localnet name
 `datanet`.
 
-The alternative file `nncp-balance-slb.yaml` creates an OVS bond in
-`balance-slb` mode inside `ovsbr1`. Use one variant only. An OVS bond is not a
-kernel network device, so the underlay macvlan cannot use it as a parent.
+This example does not select a bond or a bond mode. If your nodes use a bond
+for the underlay, attach the macvlan to the bond device and choose the bonding
+mode recommended for your OpenShift and switch configuration.
 
 == Underlay
 
@@ -115,7 +104,7 @@ spec:
           name: macvlan-underlay
           plugins:
             - type: macvlan
-              master: bond1
+              master: ens4
               mode: bridge
               ipam:
                 type: static
@@ -148,7 +137,7 @@ spec:
           name: macvlan-underlay
           plugins:
             - type: macvlan
-              master: bond1
+              master: ens4
               mode: bridge
               ipam:
                 type: static
@@ -316,8 +305,8 @@ spec:
 
 [source,terminal]
 ----
-$ oc get nncp dedicated-linux-bond-iface -o yaml
-$ oc get nnce -l nmstate.io/policy=dedicated-linux-bond-iface -o yaml
+$ oc get nncp dedicated-linux-nic-iface -o yaml
+$ oc get nnce -l nmstate.io/policy=dedicated-linux-nic-iface -o yaml
 $ oc get clusteruserdefinednetwork evpn -o yaml
 $ oc get routernodeconfigurationstatus -n openshift-openperouter
 $ oc exec -n openshift-openperouter <router-pod> -c frr -- \

@@ -41,11 +41,10 @@ Linux bridge NAD is VM-only:: The repository NAD sets
 `disableContainerInterface: true` and requires a KubeVirt bridge binding.
 Attach only virtual machines to this NAD.
 
-Bond modes:: The repository NNCPs use a kernel `active-backup` bond or an OVS
-`balance-slb` bond. OpenShift Virtualization recommends `balance-slb` or LACP
-(`802.3ad`) for OVS bonds and documents which bonding modes work with
-virtualization workloads. Match the mode to the switch configuration; a
-mismatch leaves the bond up but forwarding incorrectly.
+Bond modes:: The dedicated bridge example uses a regular NIC for the underlay
+and does not prescribe a bond or a bond mode. If your nodes use a bond, follow
+the current OpenShift guidance for the bonding mode and match it to the switch
+configuration; a mismatch can leave the bond up but forwarding incorrectly.
 
 MTU:: The VXLAN encapsulation reduces the usable MTU on the EVPN interfaces.
 The checked-in results show an underlay MTU of 1500 and an EVPN bridge and
