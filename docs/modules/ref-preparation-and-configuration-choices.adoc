@@ -113,8 +113,8 @@ Decide how the workloads obtain their addresses:
 VXLAN adds 50 bytes of encapsulation. The underlay must carry the
 encapsulated frame, and the workload interface must use an MTU that fits
 inside the tunnel. The repository results show an underlay MTU of 1500 and an
-L2VNI SVI MTU of 1450, and an MTU of 1400 on the pod interface in the shared
-`br-ex` results. The exact value depends on your underlay and on any
+L2VNI SVI MTU of 1450, and an MTU of 1400 on the workload interface in the
+shared `br-ex` results. The exact value depends on your underlay and on any
 additional encapsulation.
 
 === Underlay and BGP peering

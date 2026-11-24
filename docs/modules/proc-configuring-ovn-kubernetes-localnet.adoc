@@ -289,6 +289,5 @@ that list contains the target namespace. If the condition is `False`, the
 [role="_additional-resources"]
 == Additional resources
 
-* xref:proc-attaching-a-pod-to-the-evpn-network_{context}[Attaching a pod to the EVPN network]
 * xref:proc-attaching-a-virtual-machine-to-the-evpn-network_{context}[Attaching a virtual machine to the EVPN network]
 * link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks[OpenShift Container Platform multiple networks]

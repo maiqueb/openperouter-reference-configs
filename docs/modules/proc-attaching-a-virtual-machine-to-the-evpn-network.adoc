@@ -90,9 +90,9 @@ configuration:
 +
 MAC spoof checking is always enabled for the KubeVirt localnet path. Do not
 configure a guest MAC address that differs from the MAC that OVN-Kubernetes
-assigns to the pod interface. For the same reason, do not enable promiscuous
-mode in the guest. If you need a fixed MAC address, use the Linux bridge
-model instead.
+assigns to the virtual machine interface. For the same reason, do not enable
+promiscuous mode in the guest. If you need a fixed MAC address, use the Linux
+bridge model instead.
 
 . For a Linux bridge attachment, set `networkName` to the `bridge` NAD, set a
 fixed MAC address on the interface, and match that MAC address in the

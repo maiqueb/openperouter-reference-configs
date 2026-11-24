@@ -12,7 +12,24 @@ external Layer 2 or Layer 3 network by using BGP and EVPN control planes and a
 VXLAN data plane. It does not replace the cluster network provider; it adds an
 EVPN provider edge to the nodes that host the workloads.
 
-OpenShift Container Platform isolates pods and virtual machines on overlay
+[IMPORTANT]
+====
+OpenPERouter workload networking is a Technology Preview feature.
+Technology Preview features are not supported with Red Hat production
+service level agreements (SLAs) and might not be functionally complete. Red
+Hat does not recommend using them in production. These features provide
+early access to upcoming product features, enabling customers to test
+functionality and provide feedback during the development process.
+
+EVPN fabric connectivity via OpenPERouter is currently limited to use with
+OpenShift Virtualization virtual machines. Use for standalone container
+workloads is outside the current support scope.
+
+For more information about the support scope of Red Hat Technology Preview
+features, see link:https://access.redhat.com/support/offerings/techpreview/[Technology Preview Features Support Scope].
+====
+
+OpenShift Virtualization isolates virtual machines on overlay
 networks. Some external systems must reach those workloads directly, or the
 workloads must appear on an existing Layer 2 segment: for example, a VLAN that
 hosts bare-metal servers, a firewall, or a load balancer. Extending an overlay
@@ -61,7 +78,7 @@ Bridge CNI:: A secondary network topology that connects a network attachment to
 a physical network through a linux bridge.
 
 NetworkAttachmentDefinition (NAD):: A Kubernetes resource that describes how
-Multus, OVN-Kubernetes, or another CNI plugin attaches a pod or virtual machine
+Multus, OVN-Kubernetes, or another CNI plugin attaches a virtual machine
 to an additional network.
 
 ClusterUserDefinedNetwork (CUDN) and UserDefinedNetwork (UDN):: OVN-Kubernetes

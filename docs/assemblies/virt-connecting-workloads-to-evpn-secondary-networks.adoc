@@ -6,7 +6,7 @@
 :openperouter-version: 4.22.0
 
 [role="_abstract"]
-You can connect pods and virtual machines on an OpenShift cluster to an
+You can connect virtual machines on an OpenShift cluster to an
 external Layer 2 segment by running OpenPERouter on the worker nodes. The
 workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
 external router and its clients can reach the workloads by IP address. When you
@@ -23,7 +23,7 @@ toc::[]
 
 The procedures follow the dependency order of the components: install the
 operators, prepare the node underlay and the external router, define the
-Layer 3 and Layer 2 VNIs, then attach pods and virtual machines.
+Layer 3 and Layer 2 VNIs, then attach virtual machines.
 
 include::../modules/con-about-openperouter-workload-networking.adoc[leveloffset=+1]
 

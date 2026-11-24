@@ -13,8 +13,6 @@ not fit your environment.
 
 == Limitations
 
-Project maturity:: **TODO**
-
 Graceful Restart:: OpenPERouter and its neighbors must both support and enable
 Graceful Restart for a restart to be hitless. The `Underlay` resource has a
 `gracefulRestart` field. If the external router does not advertise the
@@ -40,10 +38,8 @@ OVN-Kubernetes localnet restrictions::
   OpenPERouter; the EVPN segment is still one Layer 2 domain per VNI.
 
 Linux bridge NAD is VM-only:: The repository NAD sets
-`disableContainerInterface: true` and requires a KubeVirt bridge binding. A
-pod that attaches to this NAD gets no usable interface. If you need pod
-workloads, use the OVN-Kubernetes localnet model or define a separate bridge
-NAD without that setting.
+`disableContainerInterface: true` and requires a KubeVirt bridge binding.
+Attach only virtual machines to this NAD.
 
 Bond modes:: The repository NNCPs use a kernel `active-backup` bond or an OVS
 `balance-slb` bond. OpenShift Virtualization recommends `balance-slb` or LACP
@@ -53,7 +49,7 @@ mismatch leaves the bond up but forwarding incorrectly.
 
 MTU:: The VXLAN encapsulation reduces the usable MTU on the EVPN interfaces.
 The checked-in results show an underlay MTU of 1500 and an EVPN bridge and
-VNI MTU of 1450 on the Linux bridge path, and an MTU of 1400 on the pod
+VNI MTU of 1450 on the Linux bridge path, and an MTU of 1400 on the workload
 interface in the `br-ex` results. These values are observations, not a rule.
 Verify the path MTU for your fabric with a non-fragmented ping, for example:
 
@@ -62,7 +58,7 @@ Verify the path MTU for your fabric with a non-fragmented ping, for example:
 $ ping -M do -s 1422 -c 3 192.170.1.5
 ----
 
-Static addressing in the examples:: The pod and virtual machine examples use
+Static addressing in the examples:: The virtual machine examples use
 static addresses. For a larger deployment, integrate your own IPAM or
 external DHCP with the segment.
 
@@ -92,7 +88,7 @@ workload segment can stay inside the cluster, or when a VLAN on the physical
 trunk is sufficient.
 
 Primary user-defined network:: This is the stronger OVN-Kubernetes isolation
-model, in which the pod or virtual machine network replaces the default
+model, in which the virtual machine network replaces the default
 cluster network for the selected namespaces. Use it when the tenant network
 must not share the default cluster network at all.
 
