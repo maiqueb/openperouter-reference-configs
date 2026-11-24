@@ -12,13 +12,54 @@ create an `OpenPERouter` instance. The operator deploys the router, controller,
 nodemarker, and webhook pods in the namespace where you install it, so use a
 dedicated namespace instead of the default `openshift-operators` namespace.
 
-[NOTE]
-====
-The OpenPERouter Operator supports only the *All namespaces on the cluster*
-install mode. The web console cannot install a global operator into a custom
-global namespace, so use the CLI procedure in this module to install the
-operator in `openshift-openperouter`.
-====
+== Installing OpenPERouter by using the web console
+
+You can install the OpenPERouter Operator by using the web console. After you
+install the Operator, the Operator deploys the router, controller, nodemarker,
+and webhook pods in the `openshift-openperouter` namespace.
+
+.Prerequisites
+
+* You are logged in as a user with `cluster-admin` privileges.
+
+.Procedure
+
+. Create the `openshift-openperouter` namespace in the web console.
++
+The namespace must exist before you install the Operator.
+
+. Select *Ecosystem* -> *Software Catalog*.
+
+. In the search field, enter `openperouter` and press *Enter* to search for the
+OpenPERouter Operator.
+
+. Click the OpenPERouter Operator search result.
+
+. Click *Install* to open the *Install Operator* window.
+
+. In the *Install Operator* window, select the `openshift-openperouter`
+namespace, and click *Install* to install the Operator.
+
+. After the Operator finishes installing, click *View Operator*.
+
+. Under *Provided APIs*, click *Create Instance* to open the dialog box for
+creating an instance of OpenPERouter.
+
+. In the *Name* field, ensure the name of the instance is `openperouter`.
+
+. Set the datapath to `kernel` and the log level to `info`.
++
+If the form does not expose these fields, switch to the YAML view and set
+`spec.datapath` to `kernel` and `spec.logLevel` to `info`.
+
+. Accept the remaining default settings and click *Create* to create the
+instance.
+
+== Installing OpenPERouter by using the CLI
+
+You can install the OpenPERouter Operator by using the OpenShift CLI (`oc`).
+After you install the Operator, the Operator deploys the router, controller,
+nodemarker, and webhook pods in the namespace where you install it.
 
 .Prerequisites
 
@@ -104,7 +145,7 @@ EOF
 The operator creates the router, controller, nodemarker, and webhook pods in
 the `openshift-openperouter` namespace.
 
-.Verification
+== Verification
 
 . Confirm that the OpenPERouter pods are running:
 +
