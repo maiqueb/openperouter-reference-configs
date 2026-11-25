@@ -44,13 +44,13 @@ consistently.
 Decide whether the workload segment is a pure Layer 2 overlay or a routed
 domain. This decision determines which OpenPERouter resources you create.
 
-Pure Layer 2 overlay:: The `L2VNI` has no `routingDomain` and no
-`gatewayIPs`. The workload segment is stretched over VXLAN, but OpenPERouter
-does not route the workload subnet. Use this model when the workloads share a
-single subnet and an external router or a DHCP server on the segment provides
+Pure Layer 2 overlay:: The `L2VNI` is not associated with any L3VNI and has no
+gateway IP configured. The workload segment is stretched over VXLAN, but
+OpenPERouter does not route the workload subnet. Use this model when the
+workloads share a single subnet and an external router on the segment provides
 the default gateway and any routing to other networks.
 Routing domain:: You create an `L3VNI`, associate the `L2VNI` with it through
-`routingDomain`, and configure `gatewayIPs` on the `L2VNI`. OpenPERouter
+`routingDomain`, and configure gateway IP addresses on the `L2VNI`. OpenPERouter
 provides the anycast gateway, routes between the Layer 2 segments of the same
 tenant, and advertises the workload subnet into the EVPN fabric so that
 external clients can reach the workloads by IP address. Use this model when
@@ -75,23 +75,22 @@ The examples use VNI `100` for the `L3VNI` and VNI `110` for the workload
 `L2VNI`.
 
 EVPN route targets default to the local ASN and the VNI, for example
-`64514:100`. If the fabric uses more than one ASN, set `exportRTs` and
-`importRTs` explicitly, and list every ASN whose routes the VRF must import.
+`64514:100`. If the fabric uses more than one ASN, you will need to set its
+route targets explicitly, and list every ASN whose routes the VRF must import.
 
 === Tenant and VRF name
 
 Use one VRF per tenant. The VRF name is independent of the `L3VNI` object
 name: an `L2VNI` refers to the `metadata.name` of the `L3VNI`, not to the VRF.
-In the Linux bridge example, the `L3VNI` object is `red-100` and its VRF is
-`red`.
 
 === Gateway address
 
-Only an `L2VNI` that has a `routingDomain` can have gateway addresses. You
-can configure at most two `gatewayIPs`, one IPv4 and one IPv6, in CIDR
-notation. OpenPERouter configures the same IP address and MAC address on every
-node that participates in the network, so the gateway is an anycast address
-and a workload keeps its default gateway after it migrates to another node.
+Only an `L2VNI` that is associated with an `routingDomain` can have gateway
+addresses. You can configure at most two gateway IP addresses, one IPv4 and one
+IPv6, in CIDR notation. OpenPERouter configures the same IP address and MAC
+address on every node that participates in the network, so the gateway is an
+anycast address and a workload keeps its default gateway after it migrates to
+another node.
 
 Use a gateway address that is outside the range that you assign to workloads.
 The examples use the first address in the subnet, `192.170.1.1/24`, and assign
@@ -133,9 +132,8 @@ underlay.
 ASNs:: The cluster ASN is the autonomous system number that the nodes use
 toward the external fabric, and the external router ASN is the peer ASN. The
 examples use `64514` for the cluster and `64512` for the external router.
-VTEP pool:: The `tunnelEndpoint.cidrs` field defines the pool from which each
-node allocates its VTEP address. These addresses must be routable over the
-underlay. The examples use `100.65.0.0/24`.
+VTEP pool:: The pool from which each node allocates its VTEP address. These
+addresses must be routable over the underlay. The examples use `100.65.0.0/24`.
 
 The underlay address and MAC address are node-specific, so create one
 `Underlay` resource per node. The examples use `192.168.10.100` and

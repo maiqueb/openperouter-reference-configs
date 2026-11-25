@@ -325,7 +325,7 @@ and prefers IPv4 in a dual-stack underlay.
 == L2VNI
 
 The `L2VNI` resource defines a Layer 2 segment and the host bridge that
-attaches it to the node.
+attaches it to the node, from where it may be exposed further to the workload.
 
 === Host bridge attachment
 
@@ -348,18 +348,6 @@ spec:
     ovsBridge:
       lifecycle: External
       name: <ovs-bridge-name>
-----
-
-The Linux bridge variant is:
-
-[source,yaml]
-----
-spec:
-  hostMaster:
-    type: LinuxBridge
-    linuxBridge:
-      lifecycle: External
-      name: <linux-bridge-name>
 ----
 
 === VNI
@@ -403,6 +391,28 @@ spec:
   gatewayIPs:
     - <gateway-ip>/<prefix-length>
 ----
+
+The resource also exposes the following optional fields. The reference
+configurations do not use them.
+
+`exportRTs` and `importRTs`:: Route targets used to export and import L2 EVPN
+routes. When omitted, FRR derives them from the local ASN and the VNI. An
+explicit import list replaces the derived list rather than adding to it.
+
+`nodeSelector`:: Limits the `L2VNI` to the nodes that match the label selector.
+When omitted, the `L2VNI` applies to all nodes. Multiple `L2VNI` resources can
+match the same node.
+
+`rdAssignedNumber`:: Sets the assigned number of the Route Distinguisher. The
+administrator subfield is the node router ID, which forms a Type 1 Route
+Distinguisher as defined in RFC 4364. Valid values are `1` to `65535`.
+
+`vxlanPort`:: Sets the UDP port used for VXLAN encapsulation. The default is
+`4789`.
+
+`underlayAddressFamily`:: Selects the VTEP address family, either `IPv4` or
+`IPv6`. When omitted, OpenPERouter uses the family available in the underlay
+and prefers IPv4 in a dual-stack underlay.
 
 === Complete L2VNI example
 
@@ -480,32 +490,6 @@ spec:
       name: <linux-bridge-name>
 ----
 
-The resource also exposes the following optional fields. The reference
-configurations do not use them.
-
-`exportRTs` and `importRTs`:: Route targets used to export and import L2 EVPN
-routes. When omitted, FRR derives them from the local ASN and the VNI. An
-explicit import list replaces the derived list rather than adding to it.
-
-`nodeSelector`:: Limits the `L2VNI` to the nodes that match the label selector.
-When omitted, the `L2VNI` applies to all nodes. Multiple `L2VNI` resources can
-match the same node.
-
-`rdAssignedNumber`:: Sets the assigned number of the Route Distinguisher. The
-administrator subfield is the node router ID, which forms a Type 1 Route
-Distinguisher as defined in RFC 4364. Valid values are `1` to `65535`.
-
-`vxlanPort`:: Sets the UDP port used for VXLAN encapsulation. The default is
-`4789`.
-
-`underlayAddressFamily`:: Selects the VTEP address family, either `IPv4` or
-`IPv6`. When omitted, OpenPERouter uses the family available in the underlay
-and prefers IPv4 in a dual-stack underlay.
-
-`trunk`:: Selects a shared `L2Trunk` and a VLAN tag instead of a `hostMaster`.
-The reference and tag are immutable, and `trunk` cannot be combined with
-`hostMaster`.
-
 == How the router pod realizes the resources
 
 On each selected node, the router pod creates the following objects in the
@@ -521,8 +505,8 @@ persistent `perouter` network namespace:
 == Where NMState ends and OpenPERouter begins
 
 `NodeNetworkConfigurationPolicy` is an `nmstate.io/v1` resource. It is not an
-OpenPERouter resource. NMState creates the host bridge, bond, or macvlan. The
-`L2VNI` then attaches to that bridge with `lifecycle: External`.
+OpenPERouter resource. NMState creates the host bridge. The `L2VNI` then
+attaches to that bridge with `lifecycle: External`.
 
 For an OVN-Kubernetes localnet bridge, the NMState policy must:
 
