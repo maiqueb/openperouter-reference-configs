@@ -5,7 +5,8 @@
      font-family="Liberation Sans, DejaVu Sans, Arial, sans-serif">
   <title id="diagram-title">OpenPERouter resource relationships</title>
   <desc id="diagram-desc">
-    The Underlay resource provides the transport to the L3VNI, which defines
+    The Underlay resource provides transport for the Layer 2 overlays through
+    the L2VNI and for the Layer 3 overlays through the L3VNI, which defines
     the tenant VRF. The L2VNI references the L3VNI through
     routingDomain.l3vni.name and provides the Layer 2 segment. A
     NetworkAttachmentDefinition or CUDN/UDN attaches a virtual machine to the
@@ -74,7 +75,13 @@
   <!-- Underlay provides transport to L3VNI -->
   <line x1="715" y1="148" x2="715" y2="196" stroke="#475569" stroke-width="2"
         marker-end="url(#arrow)"/>
-  <text x="730" y="180" font-size="11.5" fill="#475569">provides the transport</text>
+  <text x="724" y="170" font-size="10.5" fill="#475569">provides transport for</text>
+  <text x="724" y="184" font-size="10.5" fill="#475569">Layer 3 overlays</text>
+
+  <!-- Underlay provides transport to L2VNI -->
+  <line x1="550" y1="100" x2="330" y2="204" stroke="#475569" stroke-width="2"
+        marker-end="url(#arrow)"/>
+  <text transform="translate(440 152) rotate(-25.3)" x="0" y="-9" font-size="10.5" fill="#475569" text-anchor="middle">provides transport for Layer 2 overlays</text>
 
   <!-- L2VNI references L3VNI -->
   <line x1="370" y1="260" x2="542" y2="260" stroke="#64748b" stroke-width="1.8"
