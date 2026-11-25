@@ -52,6 +52,10 @@ image::openperouter-data-path.png[OpenPERouter data path,width=760]
 EVPN:: Ethernet VPN. A BGP address family that distributes MAC addresses,
 MAC/IP bindings, and IP prefixes for Layer 2 and Layer 3 tenant networks.
 
+EVPN fabric:: The external network infrastructure that exchanges BGP EVPN
+routes and forwards VXLAN-encapsulated traffic between VTEPs for tenant
+networks.
+
 VNI:: VXLAN Network Identifier. A 24-bit identifier that scopes a VXLAN
 segment.
 
