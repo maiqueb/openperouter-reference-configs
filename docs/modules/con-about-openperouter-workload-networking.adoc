@@ -132,6 +132,62 @@ OpenPERouter serves as a building block enhancing existing secondary networks
 with EVPN capabilities. It does not replace the pod network, but complements it
 in cases where traditional networking features and flexibility is required.
 
+== OpenPERouter compared with primary user-defined networks
+
+EVPN capabilities are also available through primary user-defined networks
+(UDNs), which OpenShift Container Platform provides out of the box. Primary
+UDNs offer tighter integration into Kubernetes networking, including workload
+IPAM, Services, and network policies.
+
+For most EVPN deployments, default to primary UDNs. Choose OpenPERouter only
+when you need one of the capabilities that the following table lists as
+specific to OpenPERouter:
+
+.OpenPERouter compared with UDN EVPN
+[cols="2,1,1",options="header"]
+|===
+|Capability |OpenPERouter |UDN EVPN
+
+|IPAM for workloads
+|No
+|Yes
+
+|Services
+|Only with custom Endpoints
+|Yes
+
+|Network Policies
+|Only with IP matching
+|Yes
+
+|Disabling port security
+|Yes
+|No
+
+|Guest-controlled static IPs
+|Yes
+|No
+
+|DHCP-controlled IPs
+|Yes
+|No
+
+|Multiple overlays per namespace
+|Yes
+|No
+
+|Multiple overlays per VM
+|Yes
+|No
+
+|Selectable uplink interface per overlay
+|Yes
+|No
+|===
+
+The table shows the reasons to opt in to OpenPERouter. Each OpenPERouter-specific
+capability addresses a requirement that the primary UDN model does not cover.
+
 [role="_additional-resources"]
 == Additional resources
 
