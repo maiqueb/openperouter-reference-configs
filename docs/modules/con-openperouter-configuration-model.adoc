@@ -113,8 +113,9 @@ neighbors must be able to reach them.
 
 The `interfaces` field defines how a node connects to the underlay. Each entry
 uses `type: CNIDevice` with a raw CNI configuration. The CNI plugin creates a
-macvlan or ipvlan device on top of a node interface inside the router pod,
-while the parent interface stays in the host network namespace:
+macvlan device, or an ipvlan device when the underlay must share the NIC MAC
+address, on top of a node NIC or bridge inside the router pod. The parent
+interface stays in the host network namespace:
 
 [source,yaml]
 ----
@@ -136,14 +137,19 @@ spec:
                   - address: <underlay-ip>/<prefix-length>
 ----
 
-Set `master` to the node interface or bridge that carries the underlay, for
-example `<node-nic>`. OpenPERouter assigns a default name to the device inside
-the router pod. The optional `interfaceName` field overrides that name.
+Set `master` to the node NIC, or to the bridge to which the NIC is attached,
+for example `br-ex` or `<node-nic>`. OpenPERouter assigns a default name to the
+device inside the router pod. The optional `interfaceName` field overrides that
+name.
 
-Use a macvlan when the underlay needs its own MAC address on the parent
-interface. Use an ipvlan when the underlay must share the MAC address of the
-parent, or when the parent cannot host a macvlan. To use an ipvlan, set the
-plugin `type` to `ipvlan`, and set `mode` to `l2` or `l3`.
+Use a macvlan by default. Use an ipvlan only when the underlay interface must
+use the same MAC address as the NIC, for example on cloud platforms or when
+switch or port security allows a single MAC address per port. To use an ipvlan,
+set the plugin `type` to `ipvlan` and `mode` to `l3`, so that the underlay uses
+the node routing and neighbor tables. OpenPERouter provisions those tables
+from the EVPN type-2 and type-5 routes that it installs. If the parent is an OVS bridge, attach the device to an OVS internal
+interface. For the selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 
 The previous example uses static IPAM. With static IPAM, the address must be
 unique to the node, and all node underlay addresses and the BGP neighbor

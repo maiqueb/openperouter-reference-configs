@@ -8,39 +8,46 @@
 
 [role="_abstract"]
 Give each router pod an IP address on the underlay network that reaches the
-external BGP and EVPN router by creating a macvlan or ipvlan device on top of
-a node interface or bridge, and bind that device to an `Underlay` custom
-resource. The underlay carries the BGP session and the VXLAN tunnels; it is
-separate from the bridge that carries workload traffic.
+external BGP and EVPN router by creating a macvlan device on top of a node NIC
+or bridge, or an ipvlan device when the underlay must use the same MAC address
+as the NIC, and bind that device to an `Underlay` custom resource. The underlay
+carries the BGP session and the VXLAN tunnels; it is separate from the bridge
+that carries workload traffic.
 
 .Prerequisites
 
 * The Kubernetes NMState Operator and OpenPERouter are installed.
 * You have planned the underlay subnet, the VTEP address pool, and the
   cluster and external router ASNs.
-* The node interface or bridge that will host the underlay macvlan or ipvlan
-  is up on every selected worker node.
+* The node NIC or bridge that will host the underlay macvlan, or ipvlan when
+  required, is up on every selected worker node.
 * The external router is reachable from the underlay addresses that you
   assign.
 
 .Procedure
 
-. Create a macvlan or ipvlan device on top of a node interface or bridge. The
-`Underlay` resource uses a `CNIDevice` with a raw CNI configuration.
-The CNI plugin creates the device in the router pod, and the parent interface
-stays in the host network namespace.
+. Create the underlay device on top of a node NIC, or on the bridge to which
+the NIC is attached. The `Underlay` resource uses a `CNIDevice` with a raw CNI
+configuration. The CNI plugin creates the device in the router pod, and the
+parent interface stays in the host network namespace.
 +
 --
-*Use a macvlan* when the underlay needs its own MAC address on the parent
-interface or bridge.
+*Use a macvlan by default.* Attach it to the node NIC, or to the bridge to which
+the NIC is attached, for example `br-ex`.
 
-*Use an ipvlan* when the underlay must share the MAC address of the parent
-interface, or when the parent cannot host a macvlan.
+*Use an ipvlan only when the underlay interface must use the same MAC address
+as the NIC*, for example on cloud platforms or when switch or port security
+allows a single MAC address per port. Set the plugin `mode` to `l3` so that the
+underlay uses the node routing and neighbor tables. OpenPERouter provisions
+those tables from the EVPN type-2 and type-5 routes that it installs.
 
 If the parent is an OVS bridge, attach the macvlan or ipvlan to an OVS
 internal interface, because OVS bridge ports do not support these device
 types directly.
 --
++
+For the full selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 
 . Record the underlay values that you will use. The following example uses
 the dedicated bridge values from this guide:
@@ -99,11 +106,11 @@ spec:
 The `interfaceName` value, `net1` in the example, is the name that the device
 receives inside the router pod. The CNI plugin creates the device; no
 `NodeNetworkConfigurationPolicy` is required for this path. Set `master` to
-the node interface or bridge that hosts the underlay, for example `br-ex`,
-`bond1`, or `ens4`. To use a static address, replace the `dhcp` IPAM block
+the node NIC or bridge that hosts the underlay, for example `br-ex`, `bond1`,
+or `ens4`. To use a static address, replace the `dhcp` IPAM block
 with `type: static` and list the address under `addresses`. To create an
-ipvlan device instead, set the plugin `type` to `ipvlan`, set `mode` to `l2`
-or `l3`, and remove the `capabilities.mac` and `runtimeConfig.mac` entries.
+ipvlan device instead, set the plugin `type` to `ipvlan`, set `mode` to `l3`,
+and remove the `capabilities.mac` and `runtimeConfig.mac` entries.
 
 . Apply the `Underlay` resource:
 +

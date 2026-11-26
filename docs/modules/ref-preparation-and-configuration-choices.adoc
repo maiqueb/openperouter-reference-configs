@@ -119,7 +119,33 @@ additional encapsulation.
 === Underlay and BGP peering
 
 The underlay carries the BGP session and the VXLAN tunnels, and it is separate
-from the bridge that carries workload traffic. Plan the following values:
+from the bridge that carries workload traffic.
+
+==== Underlay attachment: macvlan or ipvlan
+
+OpenPERouter connects the router pod to the underlay with a CNI device. Choose
+the device type before you plan the addresses and the rest of the configuration:
+
+*Use a macvlan by default.* Attach it to the node NIC, or to the bridge to
+which the NIC is attached, for example `br-ex`.
+
+*Use an ipvlan only when the underlay interface must use the same MAC address
+as the NIC.* This is required, for example, on cloud platforms that enforce a
+single MAC address per port, and whenever switch or port security allows only
+one MAC address per port. The VTEP is an IP address on the
+underlay interface, so when that interface shares the NIC MAC address, the VTEP
+traffic leaves the node with the NIC MAC address. Set the ipvlan plugin `mode`
+to `l3` so that the underlay uses the node routing and neighbor tables.
+OpenPERouter provisions those tables from the EVPN type-2 and type-5 routes
+that it installs.
+
+If the parent is an OVS bridge, attach the macvlan or ipvlan to an OVS internal
+interface, because OVS bridge ports do not support these device types directly.
+
+For the procedure that creates the device and binds it to an `Underlay`
+resource, see xref:proc-preparing-the-node-underlay_{context}[Preparing the node underlay].
+
+Plan the following values:
 
 EVPN fabric:: The set of VTEPs that exchange EVPN routes and participate in
 the same VXLAN overlay. Members are the OpenShift cluster nodes and any
@@ -135,8 +161,8 @@ examples use `64514` for the cluster and `64512` for the external router.
 VTEP pool:: The pool from which each node allocates its VTEP address. These
 addresses must be routable over the underlay. The examples use `100.65.0.0/24`.
 
-The underlay address and MAC address are node-specific, so create one
-`Underlay` resource per node. The examples use `192.168.10.100` and
+The underlay address, and the MAC address when you use a macvlan, are
+node-specific, so create one `Underlay` resource per node. The examples use `192.168.10.100` and
 `192.168.10.101` for the Linux bridge model, and `10.200.11.50` and
 `10.200.11.51` for the dedicated bridge model.
 
@@ -149,6 +175,7 @@ example lists the values that the guide uses:
 ----
 Attachment model:        OVN-Kubernetes localnet | Linux bridge
 Network type:            pure Layer 2 overlay | routing domain
+Underlay attachment:     macvlan on the NIC or bridge | ipvlan, mode l3
 L3VNI object / VNI:      red-100 / 100          (routing domain only)
 VRF name:                red
 L2VNI object / VNI:      red-110 / 110

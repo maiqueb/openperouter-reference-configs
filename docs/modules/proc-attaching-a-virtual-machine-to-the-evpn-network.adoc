@@ -234,7 +234,8 @@ IP address binding.
 [NOTE]
 ====
 The `capabilities.mac` and `runtimeConfig.mac` settings belong to the
-`Underlay` `CNIDevice` configuration. They select the MAC address of the
-underlay macvlan that OpenPERouter uses for BGP; they do not set the MAC
-address of a virtual machine interface.
+`Underlay` `CNIDevice` configuration. With a macvlan, they select the MAC
+address of the underlay interface that OpenPERouter uses for BGP; they do not
+set the MAC address of a virtual machine interface. An ipvlan underlay uses the
+NIC MAC address and does not support a separate MAC address.
 ====

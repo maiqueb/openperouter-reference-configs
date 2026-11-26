@@ -19,7 +19,7 @@ VLANs of the trunk as direct OVN-Kubernetes secondary networks.
 * The Kubernetes NMState Operator and OpenPERouter are installed.
 * OVN-Kubernetes owns `br-ex` and the default cluster network is healthy.
 * The external router is configured and can reach the underlay address that
-  the macvlan receives.
+  the macvlan or ipvlan device receives.
 * You have unused VNI identifiers and a workload subnet that does not overlap
   the default cluster network or the underlay.
 
@@ -131,6 +131,13 @@ spec:
         runtimeConfig:
           mac: "aa:bb:cc:00:00:01"
 ----
++
+A macvlan on the bridge is the default choice. To make the underlay interface
+use the same MAC address as the NIC, for example on cloud platforms or when
+port security allows a single MAC address per port, use an `ipvlan` plugin with
+`mode: l3` and remove the `capabilities.mac` and `runtimeConfig.mac` entries.
+For the selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 +
 Create one `Underlay` per node and give each node a unique
 `runtimeConfig.mac`. Apply the resources:

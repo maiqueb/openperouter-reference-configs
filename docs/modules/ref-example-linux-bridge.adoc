@@ -114,11 +114,15 @@ spec:
 ----
 
 The `CNIDevice` raw configuration creates the underlay device in the router
-pod on top of the node interface, for example the macvlan on `ens4` shown
-here. The parent interface stays in the host network namespace, so you do not
-need to create a `NodeNetworkConfigurationPolicy` for it. Use an `ipvlan`
-plugin when the underlay must share the MAC address of the parent, and attach
-the device to an OVS internal interface when the parent is an OVS bridge.
+pod on top of the node NIC, or on the bridge to which the NIC is attached; the
+example shows a macvlan on `ens4`. The parent interface stays in the host
+network namespace, so you do not need to create a
+`NodeNetworkConfigurationPolicy` for it. Use a macvlan by default. Use an
+`ipvlan` plugin with `mode: l3` when the underlay interface must use the same
+MAC address as the NIC, for example on cloud platforms or when port security
+allows a single MAC address per port. Attach the device to an OVS internal
+interface when the parent is an OVS bridge. For the selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 Create one `Underlay` per node with a unique address, as described in
 xref:proc-preparing-the-node-underlay_{context}[Preparing the node underlay].
 

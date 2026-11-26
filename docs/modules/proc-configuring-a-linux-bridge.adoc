@@ -15,8 +15,8 @@ provides the local attachment point.
 .Prerequisites
 
 * The Kubernetes NMState Operator and OpenPERouter are installed.
-* The worker nodes have a node interface or bridge that can host the underlay
-  macvlan or ipvlan.
+* The worker nodes have a NIC, or a bridge to which the NIC is attached, that
+  can host the underlay macvlan or ipvlan device.
 * OpenShift Virtualization is installed if you plan to attach virtual
   machines.
 * The external router is configured and reachable from the node underlay
@@ -100,11 +100,14 @@ spec:
                   - address: 192.168.10.100/24
 ----
 +
-The CNI plugin creates the macvlan in the router pod on top of the node
-interface, which stays in the host network namespace. The example selects one
-node; repeat it for each worker node and give each node a unique address.
-To share the MAC address of the parent, use an `ipvlan` plugin
-instead of `macvlan`.
+The CNI plugin creates the macvlan in the router pod on top of the node NIC, or
+on the bridge to which the NIC is attached, which stays in the host network
+namespace. The example selects one node; repeat it for each worker node and
+give each node a unique address. Use a macvlan by default. To make the underlay
+interface use the same MAC address as the NIC, for example on cloud platforms
+or when port security allows a single MAC address per port, use an `ipvlan`
+plugin with `mode: l3` instead of `macvlan`. For the selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 +
 Apply the resource:
 +

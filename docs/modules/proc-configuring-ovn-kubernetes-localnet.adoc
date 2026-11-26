@@ -87,8 +87,13 @@ The `oc wait` command returns when the policy `Available` status condition is
 `True`. The verification steps read the full policy and enactment status.
 
 . Configure the underlay. Use a `CNIDevice` whose raw configuration creates a
-macvlan (or ipvlan) device on top of the node interface or bridge. In the
-following example we use an `Underlay` configuration with a macvlan on
+macvlan on the node NIC, or on the bridge to which the NIC is attached. Use a
+macvlan by default. Use an `ipvlan` device with `mode: l3` only when the
+underlay interface must use the same MAC address as the NIC, for example on
+cloud platforms or when port security allows a single MAC address per port.
+For the selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
+The following example uses an `Underlay` configuration with a macvlan on
 `ens4` with static addresses:
 +
 [source,yaml]

@@ -10,7 +10,7 @@
 The procedures in this assembly require the Kubernetes NMState Operator and an
 `NMState` instance. The Operator provides the `NodeNetworkConfigurationPolicy`
 resources that this assembly uses to create OVS bridges, Linux bridges, bonds,
-and macvlan interfaces.
+and macvlan or ipvlan interfaces.
 
 .Prerequisites
 

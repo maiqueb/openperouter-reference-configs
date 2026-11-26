@@ -72,7 +72,12 @@ bridge named `ovsbr1` with no uplink. OVN-Kubernetes adds its patch port to
 
 This example does not select a bond or a bond mode. If your nodes use a bond
 for the underlay, attach the macvlan to the bond device and choose the bonding
-mode recommended for your OpenShift and switch configuration.
+mode recommended for your OpenShift and switch configuration. Use a macvlan by
+default, on the node NIC or on the bridge to which the NIC is attached. Use an
+`ipvlan` plugin with `mode: l3` when the underlay interface must use the same
+MAC address as the NIC, for example on cloud platforms or when port security
+allows a single MAC address per port. For the selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 
 == Underlay
 
