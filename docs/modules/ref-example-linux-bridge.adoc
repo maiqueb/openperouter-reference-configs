@@ -124,7 +124,7 @@ allows a single MAC address per port. Attach the device to an OVS internal
 interface when the parent is an OVS bridge. For the selection guidance, see
 xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
 Create one `Underlay` per node with a unique address, as described in
-xref:proc-preparing-the-node-underlay_{context}[Preparing the node underlay].
+xref:proc-configuring-the-uplink_{context}[Uplink configuration].
 
 == VNIs and anycast gateway
 

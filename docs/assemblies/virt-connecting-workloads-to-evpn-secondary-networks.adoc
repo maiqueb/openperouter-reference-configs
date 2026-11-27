@@ -11,19 +11,23 @@ external Layer 2 segment by running OpenPERouter on the worker nodes. The
 workload segment is stretched over VXLAN and advertised over BGP EVPN, so an
 external router and its clients can reach the workloads by IP address. When you
 follow this guide, you create an EVPN/VXLAN secondary network carrying
-workload traffic across this extended layer 2 segment, using any of the
-physical network options described in
+workload traffic across this extended layer 2 segment, using one of the uplink
+layouts described in
+xref:proc-configuring-the-uplink_{context}[Uplink configuration] and one of the
+workload attachment models described in
 xref:workload-attachment-models_{context}[Workload attachment models]:
 
-* Sharing the default `br-ex` Open vSwitch bridge
-* A dedicated Open vSwitch bridge
-* A dedicated Linux bridge
+* Sharing the default interface for the uplink
+* Using a dedicated interface for the uplink
+* An OVN-Kubernetes localnet bridge for workloads
+* A Linux bridge for workloads
 
 toc::[]
 
 The procedures follow the dependency order of the components: install the
-operators, prepare the node underlay and the external router, define the
-Layer 3 and Layer 2 VNIs, then attach virtual machines.
+operators, configure the uplink and the workload bridge, then apply the
+complete examples that define the Layer 3 and Layer 2 VNIs and attach virtual
+machines.
 
 include::../modules/con-about-openperouter-workload-networking.adoc[leveloffset=+1]
 
@@ -35,15 +39,9 @@ include::../modules/proc-installing-openperouter.adoc[leveloffset=+1]
 
 include::../modules/con-openperouter-configuration-model.adoc[leveloffset=+1]
 
-include::../modules/proc-preparing-the-node-underlay.adoc[leveloffset=+1]
+include::../modules/proc-configuring-the-uplink.adoc[leveloffset=+1]
 
-include::../modules/proc-configuring-ovn-kubernetes-localnet.adoc[leveloffset=+1]
-
-include::../modules/proc-sharing-a-single-nic-or-bond.adoc[leveloffset=+1]
-
-include::../modules/proc-configuring-a-linux-bridge.adoc[leveloffset=+1]
-
-include::../modules/proc-attaching-a-virtual-machine-to-the-evpn-network.adoc[leveloffset=+1]
+include::../modules/proc-configuring-the-workload-bridge.adoc[leveloffset=+1]
 
 include::../modules/ref-example-ovn-kubernetes-localnet.adoc[leveloffset=+1]
 

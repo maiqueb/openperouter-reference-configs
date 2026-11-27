@@ -1,0 +1,178 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-configuring-the-uplink_{context}"]
+= Uplink configuration
+
+[role="_abstract"]
+The uplink connects each router pod to the external fabric. Configure it in the
+`Underlay` resource with a `CNIDevice` that creates a macvlan on a host
+interface. Choose whether the macvlan shares the default cluster interface
+through `br-ex`, or uses a dedicated NIC. The uplink carries the BGP session
+and the VXLAN tunnels; it is separate from the bridge that carries workload
+traffic.
+
+.Prerequisites
+
+* The Kubernetes NMState Operator and OpenPERouter are installed.
+* The host interface that carries the macvlan is up on every selected worker
+  node.
+* You have planned the underlay subnet, the VTEP address pool, and the cluster
+  and external router ASNs.
+* The external router is reachable from the underlay addresses that you
+  assign.
+
+== Sharing the default interface
+
+When a node has only one NIC or bond, OVN-Kubernetes already uses it for the
+default cluster network through `br-ex`. In that case, create the underlay
+macvlan on `br-ex`. This just works: `br-ex` already exists and OVN-Kubernetes
+owns it, so you do not need a `NodeNetworkConfigurationPolicy` for the
+underlay. The macvlan gets its own address on the underlay network, and VXLAN
+carries the workload segment.
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 192.168.122.15
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: br-ex
+              mode: bridge
+              capabilities:
+                mac: true
+              ipam:
+                type: dhcp
+        runtimeConfig:
+          mac: "aa:bb:cc:00:00:01"
+----
+
+The `master` field points the macvlan at the existing cluster bridge. Set a
+stable MAC address per node so that the DHCP server can reserve an address.
+Keep the workload bridge separate from `br-ex`: create a bridge without an
+uplink for the localnet, as described in
+xref:proc-configuring-the-workload-bridge_{context}[Workload bridge]. Do not add
+`br-ex` or its uplink to that bridge.
+
+== Using a dedicated interface
+
+When a NIC is free for the EVPN underlay, attach the macvlan to that NIC instead
+of `br-ex`. The NIC must be up and must not carry the default cluster network.
+The following example uses `eth1`. This keeps the underlay traffic off `br-ex`
+and leaves OVN-Kubernetes in full control of the default cluster network.
+
+[source,yaml]
+----
+apiVersion: network.openperouter.io/v1alpha1
+kind: Underlay
+metadata:
+  name: underlay-worker0
+  namespace: openshift-openperouter
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: <worker-node-0>
+  asn: 64514
+  tunnelEndpoint:
+    cidrs:
+      - 100.65.0.0/24
+  neighbors:
+    - asn: 64512
+      address: 10.200.11.8
+  interfaces:
+    - type: CNIDevice
+      cniDevice:
+        type: RawConfig
+        interfaceName: net1
+        rawConfig:
+          cniVersion: "1.0.0"
+          name: macvlan-underlay
+          plugins:
+            - type: macvlan
+              master: eth1
+              mode: bridge
+              ipam:
+                type: static
+                addresses:
+                  - address: 10.200.11.50/16
+----
+
+The `interfaceName` value, `net1` in the example, is the name that the CNI
+plugin gives the device inside the router pod. The parent `eth1` stays in the
+host network namespace. To use DHCP instead of a static address, replace the
+`static` IPAM block with `type: dhcp` and pin the MAC address, as in the shared
+interface example. Create one `Underlay` per node and give each node a unique
+address. The dedicated interface example uses a single NIC; a bond variant is
+planned for a later revision.
+
+== Choosing the device type
+
+Use a macvlan by default. Use an ipvlan only when the underlay interface must
+use the same MAC address as the NIC, for example on cloud platforms or when
+switch or port security allows a single MAC address per port. To use an ipvlan,
+set the plugin `type` to `ipvlan` and `mode` to `l3`, so that the underlay uses
+the node routing and neighbor tables. If the parent is an OVS bridge, attach the
+device to an OVS internal interface. For the full selection guidance, see
+xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices].
+
+== Verification
+
+. Confirm that OpenPERouter accepted the `Underlay` on every node that runs a
+router pod:
++
+[source,terminal]
+----
+$ oc get routernodeconfigurationstatus -n openshift-openperouter
+----
++
+Each entry must show `READY` as `True` and `DEGRADED` as `False`, with an empty
+`status.failedResources`.
+
+. Confirm that the underlay interface has an address inside the router pod:
++
+[source,terminal]
+----
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
+    ip addr show net1
+----
++
+The address must be in the underlay subnet and must be reachable from the
+external router.
+
+. Confirm that the BGP session to the external router is established:
++
+[source,terminal]
+----
+$ oc exec -n openshift-openperouter <router-pod> -c frr -- \
+    vtysh -c 'show bgp l2vpn evpn summary'
+----
+
+[role="_additional-resources"]
+== Additional resources
+
+* xref:con-openperouter-configuration-model_{context}[OpenPERouter configuration model]
+* xref:ref-preparation-and-configuration-choices_{context}[Preparation and configuration choices]

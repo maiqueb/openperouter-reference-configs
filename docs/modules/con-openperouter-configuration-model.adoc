@@ -508,26 +508,9 @@ persistent `perouter` network namespace:
   `br-pe-110`, `vni110`, and a veth peer that attaches to the host bridge.
 * The anycast gateway address on the L2VNI bridge.
 
-== Where NMState ends and OpenPERouter begins
-
-`NodeNetworkConfigurationPolicy` is an `nmstate.io/v1` resource. It is not an
-OpenPERouter resource. NMState creates the host bridge. The `L2VNI` then
-attaches to that bridge with `lifecycle: External`.
-
-For an OVN-Kubernetes localnet bridge, the NMState policy must:
-
-* Create an OVS bridge with `allow-extra-patch-ports: true`. OVN-Kubernetes
-  adds a patch port to connect the bridge to `br-int`; without this option,
-  OVN-Kubernetes cannot attach the localnet network.
-* Disable Spanning Tree Protocol with `stp: false`. OVN-Kubernetes does not
-  support STP on a localnet bridge.
-* Add the bridge mapping under `ovn.bridge-mappings`, for example
-  `localnet: datanet` and `bridge: ovsbr1`. The `ClusterUserDefinedNetwork`
-  `localnet.physicalNetworkName` must match the `localnet` value.
-
 [role="_additional-resources"]
 == Additional resources
 
-* xref:proc-configuring-ovn-kubernetes-localnet_{context}[Configuring OVN-Kubernetes localnet with a dedicated bridge]
-* xref:proc-configuring-a-linux-bridge_{context}[Configuring a Linux bridge]
+* xref:proc-configuring-the-uplink_{context}[Uplink configuration]
+* xref:proc-configuring-the-workload-bridge_{context}[Workload bridge]
 * link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]

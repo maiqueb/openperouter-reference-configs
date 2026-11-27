@@ -143,7 +143,7 @@ If the parent is an OVS bridge, attach the macvlan or ipvlan to an OVS internal
 interface, because OVS bridge ports do not support these device types directly.
 
 For the procedure that creates the device and binds it to an `Underlay`
-resource, see xref:proc-preparing-the-node-underlay_{context}[Preparing the node underlay].
+resource, see xref:proc-configuring-the-uplink_{context}[Uplink configuration].
 
 Plan the following values:
 
