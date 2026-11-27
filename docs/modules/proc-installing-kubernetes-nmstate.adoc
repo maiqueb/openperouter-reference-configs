@@ -1,0 +1,39 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: PROCEDURE
+[id="proc-installing-kubernetes-nmstate_{context}"]
+= Installing Kubernetes NMState
+
+[role="_abstract"]
+The procedures in this assembly require the Kubernetes NMState Operator and an
+`NMState` instance. The Operator provides the `NodeNetworkConfigurationPolicy`
+resources that this assembly uses to create OVS bridges, Linux bridges, bonds,
+and macvlan or ipvlan interfaces.
+
+.Prerequisites
+
+* You have `cluster-admin` access to the cluster.
+
+.Procedure
+
+. Install the Operator and create the `NMState` instance by following
+link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/networking_operators/k8s-nmstate-about-the-k8s-nmstate-operator#installing-the-kubernetes-nmstate-operator-cli[Installing the Kubernetes NMState Operator]
+in the OpenShift Container Platform 4.22 documentation. You can use either the
+web console or the CLI; the instance must be named `nmstate`. Return to this
+assembly after the instance is available.
+
+.Verification
+
+* Confirm that the instance is available:
++
+[source,terminal]
+----
+$ oc get nmstate nmstate \
+    -o custom-columns=NAME:.metadata.name,AVAILABLE:.status.conditions[?(@.type=="Available")].status
+----
++
+The `AVAILABLE` column must show `True`. The operator installs the
+`NodeNetworkConfigurationPolicy` and `NodeNetworkConfigurationEnactment` CRDs;
+neither has any objects until you create a policy.

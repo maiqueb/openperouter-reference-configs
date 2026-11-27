@@ -1,0 +1,201 @@
+// Module included in the following assemblies:
+//
+// * docs/assemblies/virt-connecting-workloads-to-evpn-secondary-networks.adoc
+
+:_mod-docs-content-type: REFERENCE
+[id="ref-preparation-and-configuration-choices_{context}"]
+= Preparation and configuration choices
+
+[role="_abstract"]
+Before you install the operators or create any OpenPERouter resources, review
+the topology constraints of the workload network and the assumptions that the
+examples make. The attachment model and the resource plumbing that realizes it
+are described in
+xref:con-openperouter-configuration-model_{context}[OpenPERouter configuration model].
+
+== What the examples assume
+
+The procedures and examples in this assembly assume the following
+environment. The procedures create most of these resources; the list is here
+so that you can confirm the assumptions before you start.
+
+* An OpenShift Container Platform cluster with cluster-admin access and the
+  `oc` CLI.
+* OVN-Kubernetes as the cluster network provider.
+* A physical network, reachable through the OpenShift cluster uplink, that
+  allows VXLAN-encapsulated traffic and BGP peering between the cluster nodes
+  and the external router.
+* The Kubernetes NMState Operator installed and a `NMState` instance created.
+* OpenShift Virtualization installed and a `HyperConverged` instance created.
+* An external router, if you want to stretch a Layer 2 segment across sites
+  or connect the workloads to an external routed network through EVPN. The
+  router has one interface on the underlay network, one interface on the
+  external client network, and VXLAN and BGP connectivity to the cluster
+  nodes.
+
+== Design choices
+
+The following decisions define the network that you build. Record the values
+before you start, because the procedures and examples reuse them
+consistently.
+
+=== Layer 2 overlay or routing domain
+
+Decide whether the workload segment is a pure Layer 2 overlay or a routed
+domain. This decision determines which OpenPERouter resources you create.
+
+Pure Layer 2 overlay:: The `L2VNI` is not associated with any L3VNI and has no
+gateway IP configured. The workload segment is stretched over VXLAN, but
+OpenPERouter does not route the workload subnet. Use this model when the
+workloads share a single subnet and an external router on the segment provides
+the default gateway and any routing to other networks.
+Routing domain:: You create an `L3VNI`, associate the `L2VNI` with it through
+`routingDomain`, and configure gateway IP addresses on the `L2VNI`. OpenPERouter
+provides the anycast gateway, routes between the Layer 2 segments of the same
+tenant, and advertises the workload subnet into the EVPN fabric so that
+external clients can reach the workloads by IP address. Use this model when
+you want distributed routing, a default gateway that follows a virtual
+machine when it migrates between nodes, or connectivity between several
+Layer 2 segments of the same tenant.
+
+Multiple `L2VNI` resources can share the same `L3VNI`. Each `L2VNI` keeps its
+own broadcast domain and subnet, and the `L3VNI` routes between them and
+toward the external fabric.
+
+The examples in this guide use a routing domain.
+
+=== VNI layout
+
+Reserve one `L3VNI` for the tenant VRF and one `L2VNI` for each Layer 2
+segment. VNI identifiers must be unique within the EVPN fabric, not only
+within the cluster: every VTEP that carries the segment must agree on the
+identifier and on the Layer 2 and Layer 3 segments that the fabric carries.
+
+The examples use VNI `100` for the `L3VNI` and VNI `110` for the workload
+`L2VNI`.
+
+EVPN route targets default to the local ASN and the VNI, for example
+`64514:100`. If the fabric uses more than one ASN, you will need to set its
+route targets explicitly, and list every ASN whose routes the VRF must import.
+
+=== Tenant and VRF name
+
+Use one VRF per tenant. The VRF name is independent of the `L3VNI` object
+name: an `L2VNI` refers to the `metadata.name` of the `L3VNI`, not to the VRF.
+
+=== Gateway address
+
+Only an `L2VNI` that is associated with an `routingDomain` can have gateway
+addresses. You can configure at most two gateway IP addresses, one IPv4 and one
+IPv6, in CIDR notation. OpenPERouter configures the same IP address and MAC
+address on every node that participates in the network, so the gateway is an
+anycast address and a workload keeps its default gateway after it migrates to
+another node.
+
+Use a gateway address that is outside the range that you assign to workloads.
+The examples use the first address in the subnet, `192.170.1.1/24`, and assign
+`192.170.1.3` and `192.170.1.5` to the virtual machines.
+
+=== Workload IP addressing
+
+Decide how the workloads obtain their addresses:
+
+* Assign static addresses to the interfaces that attach to the EVPN segment.
+  The examples use cloud-init to configure the virtual machine interfaces with
+  a static address and the anycast gateway.
+* Use an external DHCP server that is reachable on the segment. The server
+  must serve the workload subnet, and it should reserve a stable address for
+  each workload.
+
+=== MTU
+
+VXLAN adds 50 bytes of encapsulation. The underlay must carry the
+encapsulated frame, and the workload interface must use an MTU that fits
+inside the tunnel. The repository results show an underlay MTU of 1500 and an
+L2VNI SVI MTU of 1450, and an MTU of 1400 on the workload interface in the
+shared `br-ex` results. The exact value depends on your underlay and on any
+additional encapsulation.
+
+=== Underlay and BGP peering
+
+The underlay carries the BGP session and the VXLAN tunnels, and it is separate
+from the bridge that carries workload traffic.
+
+==== Underlay attachment: macvlan or ipvlan
+
+OpenPERouter connects the router pod to the underlay with a CNI device. Choose
+the device type before you plan the addresses and the rest of the configuration:
+
+*Use a macvlan by default.* Attach it to the node NIC, or to the bridge to
+which the NIC is attached, for example `br-ex`.
+
+*Use an ipvlan only when the underlay interface must use the same MAC address
+as the NIC.* This is required, for example, on cloud platforms that enforce a
+single MAC address per port, and whenever switch or port security allows only
+one MAC address per port. The VTEP is an IP address on the
+underlay interface, so when that interface shares the NIC MAC address, the VTEP
+traffic leaves the node with the NIC MAC address. Set the ipvlan plugin `mode`
+to `l3` so that the underlay uses the node routing and neighbor tables.
+OpenPERouter provisions those tables from the EVPN type-2 and type-5 routes
+that it installs.
+
+If the parent is an OVS bridge, attach the macvlan or ipvlan to an OVS internal
+interface, because OVS bridge ports do not support these device types directly.
+
+For the procedure that creates the device and binds it to an `Underlay`
+resource, see xref:proc-configuring-the-uplink_{context}[Uplink configuration].
+
+Plan the following values:
+
+EVPN fabric:: The set of VTEPs that exchange EVPN routes and participate in
+the same VXLAN overlay. Members are the OpenShift cluster nodes and any
+external routers that you connect to the workloads. All members must reach
+each other over the underlay.
+Underlay addressing:: You can use either static addresses, or get IPs from
+DHCP. The node underlay address and the BGP neighbor address must be on the
+same network so that the BGP session is established directly over the
+underlay.
+ASNs:: The cluster ASN is the autonomous system number that the nodes use
+toward the external fabric, and the external router ASN is the peer ASN. The
+examples use `64514` for the cluster and `64512` for the external router.
+VTEP pool:: The pool from which each node allocates its VTEP address. These
+addresses must be routable over the underlay. The examples use `100.65.0.0/24`.
+
+The underlay address, and the MAC address when you use a macvlan, are
+node-specific, so create one `Underlay` resource per node. The examples use `192.168.10.100` and
+`192.168.10.101` for the Linux bridge model, and `10.200.11.50` and
+`10.200.11.51` for the dedicated bridge model.
+
+=== Record your values
+
+Record the decisions for your environment before you start. The following
+example lists the values that the guide uses:
+
+[source,text]
+----
+Attachment model:        OVN-Kubernetes localnet | Linux bridge
+Network type:            pure Layer 2 overlay | routing domain
+Underlay attachment:     macvlan on the NIC or bridge | ipvlan, mode l3
+L3VNI object / VNI:      red-100 / 100          (routing domain only)
+VRF name:                red
+L2VNI object / VNI:      red-110 / 110
+Workload subnet:         192.170.1.0/24
+Anycast gateway:         192.170.1.1/24         (routing domain only)
+Workload addresses:      192.170.1.3, 192.170.1.5
+MTU:                     1450 on the EVPN interfaces
+Cluster ASN:             64514
+External router ASN:     64512
+External router address: 10.200.11.8
+VTEP pool:               100.65.0.0/24
+Node underlay addresses: 10.200.11.50/16, 10.200.11.51/16
+----
+
+[role="_additional-resources"]
+== Additional resources
+
+* xref:con-openperouter-configuration-model_{context}[OpenPERouter configuration model]
+* xref:ref-example-ovn-kubernetes-localnet_{context}[Complete example: OVN-Kubernetes localnet with a dedicated bridge]
+* xref:ref-example-linux-bridge_{context}[Complete example: Linux bridge]
+* link:https://openperouter.github.io/docs/configuration/[OpenPERouter configuration]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/multiple_networks[OpenShift Container Platform multiple networks]
+* link:https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/virtualization/networking[OpenShift Virtualization networking]

@@ -1,12 +1,19 @@
 apiVersion: nmstate.io/v1
 kind: NodeNetworkConfigurationPolicy
 metadata:
-  name: dedicated-bonded-iface
+  name: dedicated-linux-nic-iface
 spec:
   nodeSelector:
-    node-role.kubernetes.io/worker: ""  
+    node-role.kubernetes.io/worker: ""
   desiredState:
     interfaces:
+    - name: ens4
+      type: ethernet
+      state: up
+      ipv4:
+        enabled: false
+      ipv6:
+        enabled: false
     - ipv4:
         enabled: false
       ipv6:
@@ -19,12 +26,6 @@ spec:
         options:
           stp: false
         port:
-        - name: bond1
-          link-aggregation:
-            mode: balance-slb
-            port:
-            - name: ens4
-            - name: ens5
         - name: ovsbr1
       name: ovsbr1
       state: up
@@ -34,5 +35,3 @@ spec:
       - bridge: ovsbr1
         localnet: datanet
         state: present
-
-

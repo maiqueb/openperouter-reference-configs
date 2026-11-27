@@ -34,7 +34,7 @@ VNI_BRIDGE="${VNI_BRIDGE:-brvni110}"
 L2VNI="${L2VNI:-110}"
 L2VNI_CR_NAME="${L2VNI_CR_NAME:-layer2}"
 L3VNI_CR_NAME="${L3VNI_CR_NAME:-red}"
-OPENPEROUTER_NS="${OPENPEROUTER_NS:-openperouter-system}"
+OPENPEROUTER_NS="${OPENPEROUTER_NS:-openshift-openperouter}"
 
 VM_A_NAME="vm-a"
 VM_A_IP="192.170.1.3"
